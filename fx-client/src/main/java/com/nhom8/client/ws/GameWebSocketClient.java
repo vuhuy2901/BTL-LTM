@@ -24,24 +24,51 @@ public class GameWebSocketClient implements WebSocket.Listener {
         this.messageHandler = messageHandler;
     }
 
-    public void connect() {
+    private final java.util.concurrent.ConcurrentLinkedQueue<Envelope> messageQueue = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private java.util.concurrent.CompletableFuture<WebSocket> connectFuture;
+
+    public java.util.concurrent.CompletableFuture<WebSocket> connect() {
+        if (webSocket != null) {
+            return java.util.concurrent.CompletableFuture.completedFuture(webSocket);
+        }
+        if (connectFuture != null && !connectFuture.isDone()) {
+            return connectFuture;
+        }
+
         HttpClient client = HttpClient.newHttpClient();
-        client.newWebSocketBuilder()
+        connectFuture = client.newWebSocketBuilder()
                 .buildAsync(URI.create(url), this)
-                .thenAccept(ws -> {
+                .thenApply(ws -> {
                     this.webSocket = ws;
                     System.out.println("[CLIENT] Connected to WebSocket at " + url);
+                    flushQueue();
+                    return ws;
                 })
                 .exceptionally(ex -> {
                     System.err.println("[CLIENT] Lỗi kết nối WebSocket: " + ex.getMessage());
                     return null;
                 });
+        return connectFuture;
     }
 
     public void send(Envelope envelope) {
         if (webSocket != null) {
             String json = envelope.toJson();
             webSocket.sendText(json, true);
+        } else {
+            messageQueue.add(envelope);
+            if (connectFuture == null || connectFuture.isDone()) {
+                connect();
+            }
+        }
+    }
+
+    private void flushQueue() {
+        while (webSocket != null && !messageQueue.isEmpty()) {
+            Envelope env = messageQueue.poll();
+            if (env != null) {
+                webSocket.sendText(env.toJson(), true);
+            }
         }
     }
 

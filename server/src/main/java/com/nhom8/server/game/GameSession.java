@@ -323,11 +323,10 @@ public class GameSession {
                 currentData.add(chunk);
             }
         }
-        submittedPlayers.add(username);
     }
 
     /**
-     * Hàm onDrawingSubmitted cũ không còn dùng (vì client gửi real-time qua DRAW_DATA).
+     * Xử lý khi người chơi nộp tranh chính thức.
      */
     @SuppressWarnings("unchecked")
     public void onDrawingSubmitted(String username, Envelope request) {
@@ -335,11 +334,11 @@ public class GameSession {
         if (submittedPlayers.contains(username)) return;
 
         List<StrokeDTO> drawDataList = JsonUtil.convertList(request.get("drawData"), StrokeDTO.class);
-        if (drawDataList == null) {
-            drawDataList = new ArrayList<>();
+        if (drawDataList != null && !drawDataList.isEmpty()) {
+            submittedDrawings.put(username, Collections.synchronizedList(new ArrayList<>(drawDataList)));
+        } else {
+            submittedDrawings.putIfAbsent(username, Collections.synchronizedList(new ArrayList<>()));
         }
-
-        submittedDrawings.put(username, drawDataList);
         submittedPlayers.add(username);
 
         // Lưu painting vào DB
@@ -627,6 +626,20 @@ public class GameSession {
         roundResult.put("painterPoints", painterPoints);
         roundResult.put("correctCount", correctCount);
         roundResult.put("totalGuessers", totalGuessers);
+        roundResult.put("earlyFinish", totalGuessers > 0 && correctCount == totalGuessers);
+
+        // Bổ sung bảng điểm tổng lũy kế thời gian thực của mọi người chơi
+        ArrayList<HashMap<String, Object>> currentScores = new ArrayList<>();
+        for (String u : playerOrder) {
+            MatchResult mr = matchResults.get(u);
+            HashMap<String, Object> sc = new HashMap<>();
+            sc.put("username", u);
+            sc.put("totalPoints", mr != null ? mr.getTotalPoints() : 0);
+            sc.put("pointsDrawn", mr != null ? mr.getPointsDrawn() : 0);
+            sc.put("pointsGuess", mr != null ? mr.getPointsGuess() : 0);
+            currentScores.add(sc);
+        }
+        roundResult.put("scores", currentScores);
 
         List<GuessResult> results = guessResults.get(painterUsername);
         ArrayList<HashMap<String, Object>> guessDetailsList = new ArrayList<>();
@@ -713,7 +726,7 @@ public class GameSession {
         for (MatchResult mr : allResults) {
             HashMap<String, Object> entry = new HashMap<>();
             entry.put("rank", rank++);
-            entry.put("username", mr.getUser().getUsername());
+            entry.put("username", mr.getUser() != null ? mr.getUser().getUsername() : "Người chơi");
             entry.put("pointsDrawn", mr.getPointsDrawn());
             entry.put("pointsGuess", mr.getPointsGuess());
             entry.put("totalPoints", mr.getTotalPoints());
