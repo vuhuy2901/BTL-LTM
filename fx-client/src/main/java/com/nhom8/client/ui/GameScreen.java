@@ -317,6 +317,7 @@ public class GameScreen {
     private void setupCanvasEvents() {
         canvas.setOnMousePressed(e -> {
             if (!isDrawingPhase || hasSubmittedDrawing) return;
+            PencilSound.playDraw(eraserSelected);
             currentXPoints.clear();
             currentYPoints.clear();
             gc.setStroke(eraserSelected ? Color.WHITE : currentColor);
@@ -331,6 +332,7 @@ public class GameScreen {
 
         canvas.setOnMouseDragged(e -> {
             if (!isDrawingPhase || hasSubmittedDrawing) return;
+            PencilSound.playDraw(eraserSelected);
             gc.lineTo(e.getX(), e.getY());
             gc.stroke();
             currentXPoints.add(e.getX());
@@ -458,8 +460,7 @@ public class GameScreen {
                     onGuessResult(env);
                     break;
                 case GUESS_LOG:
-                    chatMessages.add("⚡ " + env.getContent());
-                    scrollToBottom();
+                    appendChatMessage("⚡ " + env.getContent());
                     break;
                 case GUESS_RANKING_UPDATE:
                     onGuessRankingUpdate(env);
@@ -483,8 +484,7 @@ public class GameScreen {
                     if (content == null) content = env.getContent();
                     String senderUsername = env.getString("senderUsername");
                     boolean mine = senderUsername != null && senderUsername.equalsIgnoreCase(app.getCurrentUsername());
-                    chatMessages.add((mine ? "Bạn" : sender) + ": " + content);
-                    scrollToBottom();
+                    appendChatMessage((mine ? "Bạn" : sender) + ": " + content);
                     break;
                 case ROOM_UPDATE:
                     if (env.getData() != null && env.getData().has("players")) {
@@ -670,8 +670,7 @@ public class GameScreen {
                 String u = latest.has("username") ? latest.get("username").asText() : "";
                 int pts = latest.has("points") ? latest.get("points").asInt() : 0;
                 int r = latest.has("rank") ? latest.get("rank").asInt() : 1;
-                chatMessages.add("🏆 " + u + " đã đoán đúng hạng #" + r + " (+" + pts + " đ)");
-                scrollToBottom();
+                appendChatMessage("🏆 " + u + " đã đoán đúng hạng #" + r + " (+" + pts + " đ)");
             }
         }
     }
@@ -892,6 +891,14 @@ public class GameScreen {
                 (int) (color.getRed() * 255),
                 (int) (color.getGreen() * 255),
                 (int) (color.getBlue() * 255));
+    }
+
+    private void appendChatMessage(String msg) {
+        chatMessages.add(msg);
+        while (chatMessages.size() > 100) {
+            chatMessages.remove(0);
+        }
+        scrollToBottom();
     }
 
     private void scrollToBottom() {

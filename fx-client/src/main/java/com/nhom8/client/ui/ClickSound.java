@@ -16,16 +16,18 @@ public final class ClickSound {
     private ClickSound() { }
 
     public static void play() {
-        try {
-            if (!initialized) initialize();
-            if (clip != null) {
-                if (clip.isRunning()) clip.stop();
-                clip.setFramePosition(0);
-                clip.start();
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                if (!initialized) initialize();
+                if (clip != null) {
+                    if (clip.isRunning()) clip.stop();
+                    clip.setFramePosition(0);
+                    clip.start();
+                }
+            } catch (Throwable ignored) {
+                // Thiết bị không có đầu ra âm thanh thì thao tác giao diện vẫn hoạt động bình thường.
             }
-        } catch (Exception ignored) {
-            // Thiết bị không có đầu ra âm thanh thì thao tác giao diện vẫn hoạt động bình thường.
-        }
+        });
     }
 
     private static synchronized void initialize() throws Exception {
@@ -39,7 +41,7 @@ public final class ClickSound {
             double envelope = Math.pow(1.0 - progress, 3.2);
             double frequency = 1_250.0 - 420.0 * progress;
             double sample = Math.sin(2.0 * Math.PI * frequency * i / SAMPLE_RATE)
-                    * envelope * 0.16;
+                    * envelope * 0.50;
             short value = (short) (sample * Short.MAX_VALUE);
             pcm[i * 2] = (byte) (value & 0xff);
             pcm[i * 2 + 1] = (byte) ((value >>> 8) & 0xff);
@@ -51,7 +53,8 @@ public final class ClickSound {
             clip = AudioSystem.getClip();
             clip.open(input);
             if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
-                ((FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN)).setValue(-9f);
+                FloatControl gain = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
+                gain.setValue(Math.min(0.0f, gain.getMaximum()));
             }
         }
     }

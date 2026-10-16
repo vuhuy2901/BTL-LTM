@@ -195,7 +195,9 @@ public class PrivateChatWindow {
             if (env.getData() != null && env.getData().has("history")) {
                 JsonNode historyNode = env.getData().get("history");
                 if (historyNode.isArray()) {
-                    for (JsonNode item : historyNode) {
+                    int startIndex = Math.max(0, historyNode.size() - 100);
+                    for (int i = startIndex; i < historyNode.size(); i++) {
+                        JsonNode item = historyNode.get(i);
                         String sender = item.has("senderDisplayName") ? item.get("senderDisplayName").asText() : "";
                         String content = item.has("content") ? item.get("content").asText() : "";
                         String time = item.has("timestamp") ? formatTime(item.get("timestamp").asText()) : "";
@@ -243,6 +245,9 @@ public class PrivateChatWindow {
 
         row.getChildren().add(bubble);
         messageContainer.getChildren().add(row);
+        while (messageContainer.getChildren().size() > 100) {
+            messageContainer.getChildren().remove(0);
+        }
     }
 
     private void addSystemMessage(String text) {

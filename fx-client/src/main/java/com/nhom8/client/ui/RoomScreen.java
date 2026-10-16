@@ -487,6 +487,9 @@ public class RoomScreen {
                     String senderUsername = env.getString("senderUsername");
                     boolean mine = senderUsername != null && senderUsername.equalsIgnoreCase(app.getCurrentUsername());
                     chatMessages.add((mine ? "Bạn" : sender) + ": " + text);
+                    while (chatMessages.size() > 100) {
+                        chatMessages.remove(0);
+                    }
                     if (chatListView != null && !chatMessages.isEmpty()) {
                         chatListView.scrollTo(chatMessages.size() - 1);
                     }

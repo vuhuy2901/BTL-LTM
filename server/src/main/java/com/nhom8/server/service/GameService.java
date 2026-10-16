@@ -493,6 +493,9 @@ public class GameService {
             chatMessageRepository.markConversationRead(me, target);
 
             java.util.List<com.nhom8.server.model.ChatMessage> history = chatMessageRepository.findChatHistory(me, target);
+            if (history != null && history.size() > 100) {
+                history = history.subList(history.size() - 100, history.size());
+            }
             java.util.List<java.util.Map<String, Object>> responseList = new java.util.ArrayList<>();
 
             for (com.nhom8.server.model.ChatMessage c : history) {

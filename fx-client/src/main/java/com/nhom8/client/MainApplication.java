@@ -76,10 +76,12 @@ public class MainApplication extends Application {
         if (scene == null) return;
         if (!Boolean.TRUE.equals(scene.getProperties().get("scribble.clickSoundInstalled"))) {
             scene.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> {
-                if (event.getButton() != MouseButton.PRIMARY) return;
-                Node node = event.getTarget() instanceof Node target ? target : null;
-                while (node != null && !(node instanceof ButtonBase)) node = node.getParent();
-                if (node instanceof ButtonBase control && !control.isDisabled()) ClickSound.play();
+                try {
+                    if (event.getButton() != MouseButton.PRIMARY) return;
+                    Node node = event.getTarget() instanceof Node target ? target : null;
+                    while (node != null && !(node instanceof ButtonBase)) node = node.getParent();
+                    if (node instanceof ButtonBase control && !control.isDisabled()) ClickSound.play();
+                } catch (Throwable ignored) {}
             });
             scene.getProperties().put("scribble.clickSoundInstalled", true);
         }

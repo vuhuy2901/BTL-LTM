@@ -57,7 +57,7 @@ public class ProfileDialog {
     public ProfileDialog(MainApplication app) {
         this.app = app;
         this.stage = new Stage();
-        stage.initModality(Modality.APPLICATION_MODAL);
+        stage.initModality(Modality.NONE);
         if (app.getPrimaryStage() != null) {
             stage.initOwner(app.getPrimaryStage());
         }

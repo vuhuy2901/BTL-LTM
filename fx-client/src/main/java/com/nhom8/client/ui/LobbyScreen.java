@@ -318,9 +318,12 @@ public class LobbyScreen {
         inboxUnreadBadge.setVisible(false);
         inboxUnreadBadge.setManaged(false);
         StackPane inboxFab = new StackPane(inboxButton, inboxUnreadBadge);
+        inboxFab.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+        inboxFab.setPickOnBounds(false);
         StackPane.setAlignment(inboxUnreadBadge, Pos.TOP_RIGHT);
         StackPane.setAlignment(inboxFab, Pos.BOTTOM_RIGHT);
         StackPane.setMargin(inboxFab, new Insets(0, 26, 22, 0));
+        lobbyRoot.setPickOnBounds(false);
         lobbyRoot.getChildren().add(inboxFab);
 
         scene = new Scene(lobbyRoot, 1100, 640);

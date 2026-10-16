@@ -3,13 +3,17 @@
    Hand-drawn Sketch / Cartoon Doodle Style Sheet
    ========================================================= */
 
-.root, root {
+* {
+    -fx-primary: #F5C800;
+    -fx-ink: #000000;
+}
+
+.root {
     -fx-primary: #F5C800;
     -fx-ink: #000000;
     -fx-background-color: -fx-primary;
     -fx-font-family: "Patrick Hand";
     -fx-font-size: 18px;
-    -fx-text-fill: -fx-ink;
 }
 
 .button {
