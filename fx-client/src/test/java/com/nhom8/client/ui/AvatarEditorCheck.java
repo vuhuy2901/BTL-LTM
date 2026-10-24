@@ -5,7 +5,6 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
-import javafx.scene.control.Slider;
 import javafx.scene.image.WritableImage;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseButton;
@@ -40,9 +39,6 @@ public class AvatarEditorCheck extends Application {
             StackPane frame = (StackPane) ((HBox) editor.getChildren().get(2)).getChildren().getFirst();
             ImageView image = (ImageView) frame.getChildren().getFirst();
             require(image.getViewport().getMinX() == 200, "Ảnh ngang phải được cắt ở giữa");
-            Slider zoom = (Slider) ((HBox) editor.getChildren().get(3)).getChildren().get(1);
-            zoom.setValue(2);
-            require(image.getViewport().getWidth() == 200, "Thu phóng phải đổi vùng cắt");
             frame.getOnMousePressed().handle(mouse(MouseEvent.MOUSE_PRESSED, 0, 0));
             frame.getOnMouseDragged().handle(mouse(MouseEvent.MOUSE_DRAGGED, 10000, 10000));
             require(image.getViewport().getMinX() == 0 && image.getViewport().getMinY() == 0,
@@ -51,12 +47,12 @@ public class AvatarEditorCheck extends Application {
             BufferedImage crop = ImageIO.read(new ByteArrayInputStream(Base64.getDecoder()
                     .decode(value.substring(AvatarData.PNG_PREFIX.length()))));
             require(crop.getWidth() == 256 && crop.getHeight() == 256, "Ảnh lưu phải có kích thước 256 × 256");
-            require(crop.getRGB(128, 128) == source.getPixelReader().getArgb(100, 100), "Ảnh lưu phải khớp vùng xem trước");
+            require(crop.getRGB(128, 128) == source.getPixelReader().getArgb(200, 200), "Ảnh lưu phải khớp vùng xem trước");
             require(sent.get() == null, "Ảnh xem trước không được tự động lưu");
             editor.discard();
             require("3".equals(editor.valueToSave()), "Hủy phải phục hồi avatar đã lưu");
             editor.loadImage(source);
-            Button save = (Button) ((HBox) editor.getChildren().get(6)).getChildren().getFirst();
+            Button save = (Button) ((HBox) editor.getChildren().get(5)).getChildren().getFirst();
             save.fire();
             require(sent.get() != null && editor.isSaving(), "Nút Lưu phải gửi ảnh và chờ xác nhận");
             editor.saveFailed("Thử lại");
@@ -73,7 +69,7 @@ public class AvatarEditorCheck extends Application {
             for (int y = 0; y < screenshot.getHeight(); y++) for (int x = 0; x < screenshot.getWidth(); x++)
                 screenshot.setRGB(x, y, snapshot.getPixelReader().getArgb(x, y));
             ImageIO.write(screenshot, "png", new File("target/avatar-editor-preview.png"));
-            System.out.println("PASS: avatar crop, drag bounds, zoom, preview, cancel, save and retry.");
+            System.out.println("PASS: avatar crop, drag bounds, preview, cancel, save and retry.");
         } catch (Throwable ex) { failure = ex; ex.printStackTrace(); }
         finally { Platform.exit(); }
     }

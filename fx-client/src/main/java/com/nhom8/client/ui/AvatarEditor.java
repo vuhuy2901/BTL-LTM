@@ -26,7 +26,6 @@ public final class AvatarEditor extends VBox {
     private static final double FRAME_SIZE = 240;
     private final StackPane frame = new StackPane();
     private final StackPane preview = new StackPane();
-    private final Slider zoom = new Slider(1, 4, 1);
     private final Label status = new Label("Chọn biểu tượng hoặc tải ảnh của bạn lên.");
     private final Button save = new Button("Lưu ảnh đại diện");
     private final Button cancel = new Button("Hủy thay đổi");
@@ -50,7 +49,7 @@ public final class AvatarEditor extends VBox {
         setPadding(new Insets(8, 0, 4, 0));
         Label title = new Label("Ảnh đại diện");
         title.setStyle("-fx-font-size: 18px; -fx-font-weight: bold;");
-        Label hint = new Label("Kéo ảnh trong khung tròn để căn chỉnh. Dùng thanh trượt hoặc cuộn chuột để phóng ảnh.");
+        Label hint = new Label("Kéo ảnh trong khung tròn để căn chỉnh vị trí khuôn mặt.");
         hint.setWrapText(true);
         hint.setMaxWidth(Double.MAX_VALUE);
         hint.setMinHeight(Region.USE_PREF_SIZE);
@@ -67,11 +66,6 @@ public final class AvatarEditor extends VBox {
         smallPreview.setAlignment(Pos.CENTER);
         HBox images = new HBox(28, frame, smallPreview);
         images.setAlignment(Pos.CENTER_LEFT);
-        zoom.setMaxWidth(FRAME_SIZE);
-        zoom.setBlockIncrement(.1);
-        zoom.valueProperty().addListener((obs, old, value) -> {
-            if (source != null) { dirty = true; updateCrop(); updateControls(); }
-        });
         frame.setOnMousePressed(e -> {
             pressX = e.getSceneX(); pressY = e.getSceneY(); startX = centerX; startY = centerY;
         });
@@ -81,10 +75,6 @@ public final class AvatarEditor extends VBox {
             centerX = startX - (e.getSceneX() - pressX) * ratio;
             centerY = startY - (e.getSceneY() - pressY) * ratio;
             dirty = true; updateCrop(); updateControls();
-        });
-        frame.setOnScroll(e -> {
-            if (source != null && !saving) zoom.setValue(zoom.getValue() + e.getDeltaY() / 400);
-            e.consume();
         });
         for (int i = 0; i < AvatarView.ICONS.length; i++) {
             String id = String.valueOf(i + 1);
@@ -114,8 +104,7 @@ public final class AvatarEditor extends VBox {
         status.setWrapText(true);
         status.setMaxWidth(Double.MAX_VALUE);
         status.setMinHeight(Region.USE_PREF_SIZE);
-        getChildren().addAll(title, hint, images, new HBox(10, new Label("Thu / phóng"), zoom),
-                upload, choices, new HBox(10, save, cancel), status);
+        getChildren().addAll(title, hint, images, upload, choices, new HBox(10, save, cancel), status);
         showSelection();
     }
 
@@ -159,7 +148,6 @@ public final class AvatarEditor extends VBox {
         source = image;
         centerX = image.getWidth() / 2;
         centerY = image.getHeight() / 2;
-        zoom.setValue(1);
         editorImage = new ImageView(source);
         editorImage.setFitWidth(FRAME_SIZE); editorImage.setFitHeight(FRAME_SIZE);
         previewImage = new ImageView(source);
@@ -171,7 +159,7 @@ public final class AvatarEditor extends VBox {
         updateCrop(); updateControls();
     }
 
-    private double cropSide() { return Math.min(source.getWidth(), source.getHeight()) / zoom.getValue(); }
+    private double cropSide() { return Math.min(source.getWidth(), source.getHeight()); }
 
     private void updateCrop() {
         if (source == null || editorImage == null) return;
@@ -232,7 +220,6 @@ public final class AvatarEditor extends VBox {
     }
 
     private void updateControls() {
-        zoom.setDisable(source == null || saving);
         upload.setDisable(saving); choices.setDisable(saving);
         save.setDisable(!dirty || saving); cancel.setDisable(!dirty || saving);
         for (var node : choices.getChildren()) {
