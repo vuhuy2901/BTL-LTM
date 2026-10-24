@@ -91,7 +91,8 @@ public class GameIntegrationTest {
         }
 
         // 5. Chọn một trong các chủ đề thật được cấp cho từng người chơi.
-        Thread.sleep(2000);
+        // Server shows the synchronized 3–2–1 start countdown before topic selection.
+        Thread.sleep(4000);
         for (BotClient bot : bots) {
             for (Envelope env : bot.getReceivedMessages()) {
                 if (env.getType() == MessageType.TOPIC_OPTIONS && env.getData().path("topics").isArray()
@@ -109,11 +110,11 @@ public class GameIntegrationTest {
         }
 
         // 7. Guess phase - wait for drawing phase to finish and guessing phase to start
-        Thread.sleep(4000); // Wait for draw timeout (5s total)
+        Thread.sleep(6000); // Wait for draw timeout (5s total)
         
-        // Wait for all 3 paintings to finish (each takes ~15s total if not guessed, total ~45s)
+        // Each painting has the fixed 30-second guessing window.
         boolean gameFinished = false;
-        for (int i = 0; i < 75; i++) {
+        for (int i = 0; i < 105; i++) {
             Thread.sleep(1000);
             for (Envelope env : bots.get(0).getReceivedMessages()) {
                 if (env.getType() == MessageType.GAME_RESULT) {
