@@ -490,6 +490,16 @@ public class RoomScreen {
         Envelope env = new Envelope(MessageType.READY);
         env.putBoolean("isReady", nextReady);
         app.getWsClient().send(env);
+        if (nextReady) {
+            int currentCount = playersListVBox != null ? playersListVBox.getChildren().size() : 1;
+            if (currentCount < 3) {
+                DoodleDialog.showToast(app.getPrimaryStage(), "✔ Đã sẵn sàng! Cần tối thiểu 3 người chơi để bắt đầu (hiện có " + currentCount + "/3).");
+            } else {
+                DoodleDialog.showToast(app.getPrimaryStage(), "✔ Đã sẵn sàng! Đang chờ tất cả thành viên sẵn sàng để bắt đầu trận.");
+            }
+        } else {
+            DoodleDialog.showToast(app.getPrimaryStage(), "✖ Đã hủy trạng thái sẵn sàng.");
+        }
     }
 
     private void leaveRoom() {
