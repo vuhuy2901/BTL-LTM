@@ -25,9 +25,10 @@ Dự án được xây dựng theo kiến trúc Client-Server hiện đại trê
 Mở một **Terminal / PowerShell** tại thư mục gốc dự án (`BTL LTM`) và chạy:
 
 ```bash
+mvn -B -DskipTests install
 mvn -pl server spring-boot:run
 ```
-*(Hệ thống sẽ tự động khởi động cơ sở dữ liệu H2, tự sinh schema và lắng nghe WebSocket tại cổng 8080).*
+Chạy `install` lại sau mỗi lần cập nhật mã nguồn ở module `common` để server và client dùng cùng bản giao thức, sau đó đóng các tiến trình cũ rồi mở lại. Hệ thống sẽ khởi động H2 và lắng nghe WebSocket tại cổng 8080.
 
 ---
 
@@ -72,7 +73,7 @@ Mở một **cửa sổ Terminal / PowerShell mới** tại thư mục gốc và
 mvn -pl fx-client javafx:run
 ```
 
-Nếu Maven báo thiếu thông điệp mới trong module `common` sau khi cập nhật mã nguồn, chạy một lần `mvn -pl common install -DskipTests`, rồi mở lại client.
+Nếu cửa sổ cũ không nhận được bản tin mới sau khi cập nhật mã nguồn, đóng server và mọi client đang chạy, chạy `mvn -B -DskipTests install` tại thư mục gốc rồi mở lại. Tiến trình Java đang chạy không tự nạp JAR mới.
 
 *Hoặc trong IDE:*
 - Nhấp chuột phải vào file `fx-client/src/main/java/com/nhom8/client/Launcher.java` $\rightarrow$ Chọn **Run 'Launcher.main()'**.
@@ -88,6 +89,8 @@ Trên database mới không có tài khoản tạo sẵn. Chọn **Đăng ký t�
 ## 4. Hướng dẫn Test nhiều người chơi (Multi-player)
 
 Luật chơi hỗ trợ từ **3 đến 8 người chơi** trong cùng một phòng. Phòng chờ có thể có 1–2 người, nhưng phải đủ ít nhất 3 người và tất cả sẵn sàng mới bắt đầu; phòng đủ 8 người sẽ không nhận thêm thành viên. Luật chi tiết được cập nhật tại [game_rules_nhom8.md](game_rules_nhom8.md).
+
+Khi mời bạn bè vào phòng, mỗi lần gửi thành công phải đợi 15 giây mới mời lại cùng người đó. Nút mời hiển thị thời gian chờ; người đã vào phòng sẽ không còn được mời.
 
 Các trận mới dùng điểm theo thời gian (phiên bản 2): đúng ở giây 2 nhận 95 điểm, giây 15 nhận 60, giây 20 nhận 47. Thứ tự đoán không quyết định điểm. Lượt đoán luôn 30 giây; điểm người vẽ phụ thuộc tỷ lệ đúng và tốc độ, chỉ tính người đã đúng hoặc có tổng thời gian kết nối ít nhất 10 giây trong lượt. Xem mục 4 trong file luật để biết toàn bộ công thức, ví dụ và các trường hợp không bị phạt. Lịch sử cũ và điểm tích lũy được giữ nguyên.
 
@@ -106,7 +109,7 @@ Cấu hình server trong `server/src/main/resources/application.properties`: `ga
    - Đăng ký tài khoản (ví dụ: `player1`, `player2`, `player3`).
    - Người chơi 1 bấm **➕ Tạo phòng mới** (nhận mã phòng gồm 6 số, ví dụ `516979`).
    - Người chơi 2 và 3 bấm vào phòng trong sảnh chờ hoặc nhập mã phòng để vào.
-   - Khi tất cả người chơi bấm **Sẵn sàng**, Chủ phòng sẽ bắt đầu trận đấu!
+   - Khi tất cả người chơi bấm **Sẵn sàng**, cả phòng thấy đếm ngược 3–2–1 kèm âm thanh, rồi trận đấu tự bắt đầu. Nếu một người hủy sẵn sàng hoặc rời phòng trong lúc đếm, đếm ngược sẽ hủy.
 
 3. **Các giai đoạn trong trận đấu:**
    - **Chọn chủ đề (10s):** Người vẽ chọn 1 trong 3 từ khóa ngẫu nhiên.

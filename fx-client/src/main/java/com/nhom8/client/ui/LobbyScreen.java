@@ -94,6 +94,7 @@ public class LobbyScreen {
         public String avatar;
         public int rankingScore;
         public boolean isOnline;
+        public String roomId;
 
         public String getEffectiveName() {
             return (displayName != null && !displayName.isEmpty()) ? displayName : username;
@@ -577,7 +578,7 @@ public class LobbyScreen {
                     // Status pill badge
                     Label statusBadge = new Label();
                     if (item.isOnline) {
-                        statusBadge.setText("🟢 TRỰC TUYẾN");
+                        statusBadge.setText(item.roomId == null ? "🟢 TRỰC TUYẾN" : "🚪 ĐANG TRONG PHÒNG");
                         statusBadge.setStyle(
                             "-fx-font-family: 'Patrick Hand'; -fx-font-size: 12px; -fx-font-weight: bold; " +
                             "-fx-text-fill: #065F46; -fx-background-color: #D1FAE5; " +
@@ -1073,6 +1074,12 @@ public class LobbyScreen {
                 if (playerCountLabel != null) {
                     playerCountLabel.setText("Người chơi đang online: (" + playerList.size() + ")");
                 }
+                for (FriendEntry friend : friendList) {
+                    PlayerEntry player = playerList.stream().filter(p -> p.username.equals(friend.username)).findFirst().orElse(null);
+                    friend.isOnline = player != null;
+                    friend.roomId = player == null ? null : player.roomId;
+                }
+                if (friendListView != null) friendListView.refresh();
             } else if (env.getType() == MessageType.FRIEND_LIST) {
                 friendList.clear();
                 if (env.getData() != null && env.getData().has("friends")) {
@@ -1088,6 +1095,7 @@ public class LobbyScreen {
                         fe.avatar = f.has("avatar") ? f.get("avatar").asText() : "1";
                         fe.rankingScore = f.has("rankingScore") ? f.get("rankingScore").asInt() : 0;
                         fe.isOnline = f.has("isOnline") && f.get("isOnline").asBoolean();
+                        fe.roomId = f.path("roomId").asText(null);
                         friendList.add(fe);
                     });
                 }
@@ -1166,16 +1174,7 @@ public class LobbyScreen {
                 requestPendingRequests();
                 if (!lastFriendSearch.isBlank()) searchPlayers(lastFriendSearch);
             } else if (env.getType() == MessageType.ROOM_INVITE_NOTIFY) {
-                String inviter = env.getString("senderDisplayName");
-                if (inviter == null) inviter = env.getString("senderUsername");
-                String rId = env.getString("roomId");
-                DoodleDialog.confirm(app.getPrimaryStage(), "Lời mời chơi game",
-                        "💌 Người bạn " + (inviter != null ? inviter : "bạn bè") + " vừa mời bạn vào phòng #" + rId + "!\nBạn có muốn tham gia không?",
-                        "THAM GIA NGAY", "ĐỂ SAU", res -> {
-                            if (res && rId != null) {
-                                joinRoom(rId);
-                            }
-                        });
+                app.showRoomInvitation(env);
             } else if (env.getType() == MessageType.ROOM_RESPONSE) {
                 if (env.isSuccess()) {
                     String roomId = env.getString("roomId");

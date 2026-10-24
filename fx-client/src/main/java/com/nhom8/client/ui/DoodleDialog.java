@@ -1,6 +1,7 @@
 package com.nhom8.client.ui;
 
 import com.nhom8.client.MainApplication;
+import com.nhom8.common.message.Envelope;
 import javafx.animation.FadeTransition;
 import javafx.animation.PauseTransition;
 import javafx.animation.SequentialTransition;
@@ -32,6 +33,77 @@ import java.util.function.BiConsumer;
  * Thay thế hoàn toàn các Alert / TextInputDialog mặc định của JavaFX.
  */
 public class DoodleDialog {
+
+    public static void roomInvitation(Stage owner, Envelope invitation, Consumer<Boolean> callback) {
+        if (!Platform.isFxApplicationThread()) {
+            Platform.runLater(() -> roomInvitation(owner, invitation, callback));
+            return;
+        }
+        ModalOverlay[] dialog = new ModalOverlay[1];
+        VBox box = new VBox(12);
+        box.getStyleClass().add("doodle-dialog-box");
+        box.setAlignment(Pos.CENTER);
+        box.setMaxWidth(540);
+
+        Label title = new Label("💌 Lời mời vào phòng");
+        title.setStyle("-fx-font-family: 'Amatic SC'; -fx-font-size: 34px; -fx-font-weight: bold; -fx-text-fill: -fx-ink;");
+        String inviter = invitationText(invitation, "inviterDisplayName",
+                invitationText(invitation, "inviterUsername", "Một người bạn"));
+        Label sender = new Label(inviter + " mời bạn cùng chơi");
+        sender.setWrapText(true);
+        sender.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 19px; -fx-text-fill: -fx-ink;");
+        Label roomName = new Label(invitationText(invitation, "roomName", "Phòng chơi"));
+        roomName.setWrapText(true);
+        roomName.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 25px; -fx-font-weight: bold; -fx-text-fill: -fx-ink;");
+
+        javafx.scene.layout.GridPane details = new javafx.scene.layout.GridPane();
+        details.setHgap(22);
+        details.setVgap(7);
+        details.setPadding(new Insets(12, 16, 12, 16));
+        details.setStyle("-fx-background-color: #FFF9E8; -fx-border-color: #D6B85A; -fx-border-width: 1;");
+        String players = invitation.getInt("currentPlayers", -1) >= 0
+                ? invitation.getInt("currentPlayers", 0) + "/" + invitation.getInt("maxPlayers", 8) + " người" : "—";
+        String settings = invitation.getInt("maxRounds", 0) > 0
+                ? invitation.getInt("maxRounds", 0) + " vòng · " + invitation.getInt("drawTime", 60) + " giây vẽ/lượt" : "—";
+        String[][] rows = {
+                {"Mã phòng", "#" + invitationText(invitation, "roomId", "—")},
+                {"Chủ phòng", invitationText(invitation, "hostDisplayName",
+                        invitationText(invitation, "hostUsername", "—"))},
+                {"Người chơi", players},
+                {"Cài đặt trận", settings}
+        };
+        for (int i = 0; i < rows.length; i++) {
+            Label key = new Label(rows[i][0]);
+            key.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 17px; -fx-text-fill: #666666;");
+            Label value = new Label(rows[i][1]);
+            value.setWrapText(true);
+            value.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 17px; -fx-font-weight: bold; -fx-text-fill: -fx-ink;");
+            javafx.scene.layout.GridPane.setHgrow(value, Priority.ALWAYS);
+            details.addRow(i, key, value);
+        }
+        Label note = new Label("Thông tin phòng tại thời điểm gửi lời mời.");
+        note.setWrapText(true);
+        note.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 14px; -fx-text-fill: #666666;");
+        Button later = new Button("ĐỂ SAU");
+        later.getStyleClass().add("pencil-button-danger");
+        later.setOnAction(e -> dialog[0].close(() -> { if (callback != null) callback.accept(false); }));
+        Button join = new Button("THAM GIA NGAY");
+        join.getStyleClass().add("pencil-button-success");
+        join.setOnAction(e -> dialog[0].close(() -> { if (callback != null) callback.accept(true); }));
+        HBox buttons = new HBox(14, later, join);
+        buttons.setAlignment(Pos.CENTER);
+        box.getChildren().addAll(title, sender, roomName, details, note, buttons);
+        javafx.scene.control.ScrollPane scroll = new javafx.scene.control.ScrollPane(box);
+        scroll.setFitToWidth(true);
+        scroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        dialog[0] = ModalOverlay.show(owner, scroll, 560, 490, null);
+        dialog[0].waitForClose();
+    }
+
+    private static String invitationText(Envelope invitation, String key, String fallback) {
+        String value = invitation.getString(key);
+        return value == null || value.isBlank() ? fallback : value;
+    }
 
     public static void roomSetup(Stage owner, BiConsumer<String, String> callback) {
         if (!Platform.isFxApplicationThread()) {

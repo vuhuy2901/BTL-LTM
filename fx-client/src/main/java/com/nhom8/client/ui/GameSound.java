@@ -6,9 +6,10 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.sound.sampled.FloatControl;
 import java.io.ByteArrayInputStream;
+import java.net.URL;
 import java.util.concurrent.CompletableFuture;
 
-/** Short synthesized game sounds, so the client does not depend on external audio files. */
+/** Short game cues from bundled CC0 assets, with synthesized fallbacks. */
 public final class GameSound {
     private static final float SAMPLE_RATE = 22_050f;
     private static volatile boolean initialized;
@@ -18,6 +19,12 @@ public final class GameSound {
     private static Clip correctForRoom;
     private static Clip phaseStart;
     private static Clip timeout;
+    private static Clip drawingSubmitted;
+    private static Clip paintingRevealed;
+    private static Clip wrongGuess;
+    private static Clip startTick;
+    private static Clip startGo;
+    private static volatile boolean enabled = true;
 
     private GameSound() { }
 
@@ -29,10 +36,19 @@ public final class GameSound {
     public static void playRoomCorrect() { play(3); }
     public static void playPhaseStart() { play(4); }
     public static void playTimeout() { play(5); }
+    public static void playDrawingSubmitted() { play(6); }
+    public static void playPaintingRevealed() { play(7); }
+    public static void playWrongGuess() { play(8); }
+    public static void playStartTick() { play(9); }
+    public static void playStartGo() { play(10); }
+    public static boolean isEnabled() { return enabled; }
+    public static void setEnabled(boolean value) { enabled = value; }
 
     private static void play(int sound) {
+        if (!enabled) return;
         CompletableFuture.runAsync(() -> {
             try {
+                if (!enabled) return;
                 initialize();
                 Clip clip = switch (sound) {
                     case 1 -> urgentTick;
@@ -40,6 +56,11 @@ public final class GameSound {
                     case 3 -> correctForRoom;
                     case 4 -> phaseStart;
                     case 5 -> timeout;
+                    case 6 -> drawingSubmitted;
+                    case 7 -> paintingRevealed;
+                    case 8 -> wrongGuess;
+                    case 9 -> startTick;
+                    case 10 -> startGo;
                     default -> tick;
                 };
                 if (clip != null) {
@@ -57,11 +78,34 @@ public final class GameSound {
         if (initialized) return;
         tick = tone(new double[]{1_050}, new int[]{58}, 0.24);
         urgentTick = tone(new double[]{1_420}, new int[]{76}, 0.34);
-        correct = tone(new double[]{660, 880, 1_100, 1_320}, new int[]{105, 105, 120, 230}, 0.42);
+        correct = resourceClip("/sounds/confirmation_004.wav");
+        if (correct == null) correct = tone(new double[]{660, 880, 1_100, 1_320}, new int[]{105, 105, 120, 230}, 0.42);
         correctForRoom = tone(new double[]{740, 990}, new int[]{85, 140}, 0.24);
         phaseStart = tone(new double[]{520, 780}, new int[]{95, 145}, 0.27);
         timeout = tone(new double[]{660, 440, 300}, new int[]{130, 150, 220}, 0.30);
+        drawingSubmitted = resourceClip("/sounds/confirmation_003.wav");
+        if (drawingSubmitted == null) drawingSubmitted = tone(new double[]{620, 900}, new int[]{85, 150}, 0.25);
+        paintingRevealed = resourceClip("/sounds/open_004.wav");
+        if (paintingRevealed == null) paintingRevealed = tone(new double[]{520, 760}, new int[]{85, 140}, 0.24);
+        wrongGuess = resourceClip("/sounds/error_006.wav");
+        if (wrongGuess == null) wrongGuess = tone(new double[]{400, 300}, new int[]{95, 145}, 0.22);
+        startTick = resourceClip("/sounds/tick_001.wav");
+        if (startTick == null) startTick = tone(new double[]{900}, new int[]{70}, 0.28);
+        startGo = resourceClip("/sounds/bong_001.wav");
+        if (startGo == null) startGo = tone(new double[]{740, 1100}, new int[]{100, 180}, 0.35);
         initialized = true;
+    }
+
+    private static Clip resourceClip(String path) {
+        URL resource = GameSound.class.getResource(path);
+        if (resource == null) return null;
+        try (AudioInputStream input = AudioSystem.getAudioInputStream(resource)) {
+            Clip clip = AudioSystem.getClip();
+            clip.open(input);
+            return clip;
+        } catch (Exception error) {
+            return null;
+        }
     }
 
     private static Clip tone(double[] frequencies, int[] durationsMs, double volume) throws Exception {

@@ -10,6 +10,9 @@ import com.nhom8.common.message.MessageType;
 import javafx.animation.PauseTransition;
 import javafx.animation.FadeTransition;
 import javafx.animation.ScaleTransition;
+import javafx.animation.Timeline;
+import javafx.animation.KeyFrame;
+import javafx.animation.KeyValue;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -36,6 +39,7 @@ public class GameScreen {
     private final ObservableList<String> playerList;
 
     private Canvas canvas;
+    private Pane paintingLayer;
     private GraphicsContext gc;
 
     // Trạng thái phiên đấu
@@ -82,6 +86,8 @@ public class GameScreen {
     private Button submitDrawingBtn;
     private TextField inputField;
     private Label guessFeedbackLabel;
+    private Timeline wrongGuessAnimation;
+    private PauseTransition wrongGuessReset;
     private ListView<String> chatView;
 
     // Overlays
@@ -142,7 +148,15 @@ public class GameScreen {
         timerLabel = new Label("⏱ --s");
         timerLabel.setStyle("-fx-font-family: 'Amatic SC'; -fx-font-size: 28px; -fx-font-weight: bold; -fx-text-fill: white; -fx-background-color: -fx-ink; -fx-padding: 2 14; -fx-border-color: white; -fx-border-width: 2;");
 
-        topBox.getChildren().addAll(leaveBtn, topInfoLabel, spacer, phaseLabel, timerLabel);
+        Button soundButton = new Button(GameSound.isEnabled() ? "🔊" : "🔇");
+        soundButton.getStyleClass().add("pencil-button-sm");
+        soundButton.setTooltip(new Tooltip("Bật/tắt âm thanh"));
+        soundButton.setOnAction(e -> {
+            GameSound.setEnabled(!GameSound.isEnabled());
+            soundButton.setText(GameSound.isEnabled() ? "🔊" : "🔇");
+        });
+
+        topBox.getChildren().addAll(leaveBtn, topInfoLabel, spacer, phaseLabel, timerLabel, soundButton);
         root.setTop(topBox);
 
         // --- CENTER: CANVAS + TOOLBAR ---
@@ -161,6 +175,12 @@ public class GameScreen {
         canvasContainer.setMaxHeight(Double.MAX_VALUE);
 
         canvas = new Canvas(640, 460);
+        paintingLayer = new Pane();
+        paintingLayer.setPrefSize(640, 460);
+        paintingLayer.setMinSize(640, 460);
+        paintingLayer.setMaxSize(640, 460);
+        paintingLayer.setMouseTransparent(true);
+        paintingLayer.setVisible(false);
         gc = canvas.getGraphicsContext2D();
         gc.setFill(Color.WHITE);
         gc.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
@@ -179,12 +199,14 @@ public class GameScreen {
                     availableHeight / canvas.getHeight());
             canvas.setScaleX(scale);
             canvas.setScaleY(scale);
+            paintingLayer.setScaleX(scale);
+            paintingLayer.setScaleY(scale);
         };
         canvasContainer.widthProperty().addListener((obs, oldValue, newValue) -> fitCanvas.run());
         canvasContainer.heightProperty().addListener((obs, oldValue, newValue) -> fitCanvas.run());
 
         setupCanvasEvents();
-        canvasContainer.getChildren().add(canvas);
+        canvasContainer.getChildren().addAll(canvas, paintingLayer);
 
         // Toolbar vẽ
         toolbar = new FlowPane(10, 8);
@@ -580,6 +602,7 @@ public class GameScreen {
                         submissionPending = false; hasSubmittedDrawing = true;
                         submitDrawingBtn.setDisable(true); submitDrawingBtn.setText("✔ Đã nộp");
                         toolbar.setDisable(true);
+                        GameSound.playDrawingSubmitted();
                     }
                     break;
                 case DRAWING_SKIPPED:
@@ -718,6 +741,8 @@ public class GameScreen {
         roundResultBox.setVisible(false);
         isDrawingPhase = true;
         isGuessingPhase = false;
+        paintingLayer.getChildren().clear();
+        paintingLayer.setVisible(false);
         GameSound.playPhaseStart();
         hasSubmittedDrawing = env.getBoolean("submitted", false);
         myStrokes.clear();
@@ -777,6 +802,8 @@ public class GameScreen {
 
         isDrawingPhase = false;
         isGuessingPhase = true;
+        resetWrongGuessFeedback();
+        paintingLayer.setVisible(true);
         GameSound.playPhaseStart();
         toolbar.setVisible(false);
         guessFeedbackLabel.setText("");
@@ -836,11 +863,14 @@ public class GameScreen {
     }
 
     private void onPaintingDisplay(Envelope env) {
+        GameSound.playPaintingRevealed();
         if (env.getInt("currentRound", 0) > 0) this.currentRound = env.getInt("currentRound", 1);
         if (env.getInt("maxRounds", 0) > 0) this.maxRounds = env.getInt("maxRounds", 4);
 
         gc.setFill(Color.WHITE);
         gc.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+        paintingLayer.getChildren().clear();
+        paintingLayer.setVisible(true);
 
         String hint = env.getString("hint");
         if (hint != null && !hint.isEmpty() && !currentPainter.equals(app.getCurrentUsername())) {
@@ -858,7 +888,7 @@ public class GameScreen {
                 for (JsonNode strokeNode : drawDataNode) {
                     try {
                         StrokeDTO stroke = mapper.treeToValue(strokeNode, StrokeDTO.class);
-                        drawStrokeFromNetwork(stroke);
+                        drawPaintingStroke(stroke);
                     } catch (Exception ex) {
                         ex.printStackTrace();
                     }
@@ -867,17 +897,81 @@ public class GameScreen {
         }
     }
 
+    private void drawPaintingStroke(StrokeDTO stroke) {
+        if (stroke == null) return;
+        if (stroke.isClear()) {
+            paintingLayer.getChildren().clear();
+            return;
+        }
+        if (stroke.isUndo()) return;
+        List<Double> xs = stroke.getxPoints();
+        List<Double> ys = stroke.getyPoints();
+        if (xs == null || ys == null || xs.isEmpty() || ys.isEmpty()) return;
+        Color color;
+        try {
+            color = StrokeDTO.TOOL_ERASER.equals(stroke.getTool()) ? Color.WHITE : Color.web(stroke.getColor());
+        } catch (IllegalArgumentException ex) {
+            color = Color.BLACK;
+        }
+        double width = stroke.getWidth();
+        javafx.scene.shape.Path path = new javafx.scene.shape.Path();
+        path.setManaged(false);
+        path.setFill(null);
+        path.setStroke(color);
+        path.setStrokeWidth(width);
+        path.setStrokeLineCap(StrokeLineCap.ROUND);
+        path.setStrokeLineJoin(StrokeLineJoin.ROUND);
+        path.getElements().add(new javafx.scene.shape.MoveTo(xs.get(0), ys.get(0)));
+        int count = Math.min(xs.size(), ys.size());
+        if (count == 1) {
+            path.getElements().add(new javafx.scene.shape.LineTo(xs.get(0), ys.get(0)));
+        } else {
+            for (int i = 1; i < count; i++) {
+                path.getElements().add(new javafx.scene.shape.LineTo(xs.get(i), ys.get(i)));
+            }
+        }
+        paintingLayer.getChildren().add(path);
+    }
+
     private void onGuessResult(Envelope env) {
         boolean correct = env.getBoolean("correct", false);
         if (correct) {
+            resetWrongGuessFeedback();
             GameSound.playCorrect();
             int points = env.getInt("points", 0);
             long elapsedMs = env.getData().path("elapsedMs").asLong(0);
             guessFeedbackLabel.setText("🎉 Chính xác! +" + points + " điểm · " + String.format(java.util.Locale.ROOT, "%.3f", elapsedMs / 1000.0) + " giây");
             guessFeedbackLabel.setStyle("-fx-text-fill: #52c41a; -fx-font-weight: bold; -fx-font-size: 13px;");
         } else {
+            GameSound.playWrongGuess();
             guessFeedbackLabel.setText("❌ Sai rồi! Hãy thử lại...");
             guessFeedbackLabel.setStyle("-fx-text-fill: #ff4d4f; -fx-font-weight: bold; -fx-font-size: 13px;");
+            showWrongGuessFeedback();
+        }
+    }
+
+    private void showWrongGuessFeedback() {
+        resetWrongGuessFeedback();
+        inputField.setStyle("-fx-border-color: #D62828; -fx-border-width: 2; -fx-background-color: #FFE2E2;");
+        wrongGuessAnimation = new Timeline(
+                new KeyFrame(Duration.ZERO, new KeyValue(inputField.translateXProperty(), 0)),
+                new KeyFrame(Duration.millis(55), new KeyValue(inputField.translateXProperty(), -6)),
+                new KeyFrame(Duration.millis(110), new KeyValue(inputField.translateXProperty(), 6)),
+                new KeyFrame(Duration.millis(165), new KeyValue(inputField.translateXProperty(), -4)),
+                new KeyFrame(Duration.millis(220), new KeyValue(inputField.translateXProperty(), 4)),
+                new KeyFrame(Duration.millis(280), new KeyValue(inputField.translateXProperty(), 0)));
+        wrongGuessAnimation.playFromStart();
+        wrongGuessReset = new PauseTransition(Duration.millis(900));
+        wrongGuessReset.setOnFinished(e -> resetWrongGuessFeedback());
+        wrongGuessReset.playFromStart();
+    }
+
+    private void resetWrongGuessFeedback() {
+        if (wrongGuessAnimation != null) wrongGuessAnimation.stop();
+        if (wrongGuessReset != null) wrongGuessReset.stop();
+        if (inputField != null) {
+            inputField.setTranslateX(0);
+            inputField.setStyle("");
         }
     }
 

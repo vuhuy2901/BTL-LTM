@@ -6,6 +6,9 @@ import com.nhom8.common.message.Envelope;
 import com.nhom8.common.message.MessageType;
 import javafx.application.Platform;
 import javafx.animation.PauseTransition;
+import javafx.animation.Timeline;
+import javafx.animation.KeyFrame;
+import javafx.animation.ScaleTransition;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -45,6 +48,9 @@ public class RoomScreen {
 
     private ObservableList<LobbyScreen.FriendEntry> friendList;
     private ListView<LobbyScreen.FriendEntry> friendListView;
+    private final java.util.Set<String> roomMembers = new java.util.HashSet<>();
+    private final java.util.Map<String, Long> inviteRetryAtNanos = new java.util.HashMap<>();
+    private Timeline inviteCooldownClock;
     private Label friendsCountLabel;
     private final ObservableList<LobbyScreen.PendingRequestEntry> pendingFriends = FXCollections.observableArrayList();
     private Tab pendingFriendsTab;
@@ -53,6 +59,13 @@ public class RoomScreen {
     private int unreadRoomMessages;
 
     private Scene scene;
+    private StackPane startCountdownOverlay;
+    private Label startCountdownNumber;
+    private Timeline startCountdownClock;
+    private long startCountdownDeadlineMillis;
+    private long startCountdownStartedNanos;
+    private long startCountdownRemainingMillis;
+    private int lastStartCountdownNumber = -1;
 
     public RoomScreen(MainApplication app, String roomId, String roomName) {
         this.app = app;
@@ -141,7 +154,23 @@ public class RoomScreen {
         contentBox.getChildren().addAll(playersCard, socialTabs);
         root.setCenter(contentBox);
 
-        scene = new Scene(root, 1180, 680);
+        startCountdownOverlay = new StackPane();
+        startCountdownOverlay.setStyle("-fx-background-color: rgba(18, 22, 35, 0.88);");
+        startCountdownOverlay.setVisible(false);
+        VBox countdownCard = new VBox(12);
+        countdownCard.setAlignment(Pos.CENTER);
+        Label countdownTitle = new Label("CẢ PHÒNG ĐÃ SẴN SÀNG!");
+        countdownTitle.setStyle("-fx-font-family: 'Amatic SC'; -fx-font-size: 48px; -fx-font-weight: bold; -fx-text-fill: #FFF9E8;");
+        startCountdownNumber = new Label("3");
+        startCountdownNumber.setStyle("-fx-font-family: 'Amatic SC'; -fx-font-size: 170px; -fx-font-weight: bold; -fx-text-fill: #F5B800;");
+        Label countdownHint = new Label("Trận đấu sắp bắt đầu");
+        countdownHint.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 25px; -fx-text-fill: white;");
+        Button cancelReady = new Button("Hủy sẵn sàng");
+        cancelReady.getStyleClass().add("pencil-button-sm");
+        cancelReady.setOnAction(e -> toggleReady());
+        countdownCard.getChildren().addAll(countdownTitle, startCountdownNumber, countdownHint, cancelReady);
+        startCountdownOverlay.getChildren().add(countdownCard);
+        scene = new Scene(new StackPane(root, startCountdownOverlay), 1180, 680);
         MainApplication.applyTheme(scene);
 
         // Yêu cầu lấy danh sách bạn bè để hiển thị trong phòng
@@ -354,7 +383,8 @@ public class RoomScreen {
                     HBox.setHgrow(spacer, Priority.ALWAYS);
 
                     if (item.isOnline) {
-                        Label onlineBadge = new Label("Online");
+                        boolean inRoom = item.roomId != null || roomMembers.contains(item.username);
+                        Label onlineBadge = new Label(inRoom ? "Đang trong phòng" : "Online");
                         onlineBadge.setStyle(
                             "-fx-font-family: 'Patrick Hand'; -fx-font-size: 11px; -fx-font-weight: bold; " +
                             "-fx-text-fill: #065F46; -fx-background-color: #D1FAE5; -fx-background-radius: 12px; " +
@@ -362,27 +392,16 @@ public class RoomScreen {
                         );
 
                         Button inviteBtn = new Button("✉ Mời");
+                        long waitSeconds = inviteWaitSeconds(item.username);
+                        inviteBtn.setDisable(inRoom || waitSeconds > 0);
+                        if (waitSeconds > 0) inviteBtn.setText("Mời lại (" + waitSeconds + "s)");
+                        if (inRoom) inviteBtn.setText("✔ Đã vào phòng");
                         inviteBtn.setStyle(
                             "-fx-font-family: 'Patrick Hand'; -fx-font-size: 13px; -fx-font-weight: bold; " +
                             "-fx-background-color: #10B981; -fx-text-fill: white; -fx-background-radius: 6px; " +
                             "-fx-padding: 3 10; -fx-cursor: hand;"
                         );
-                        inviteBtn.setOnAction(e -> {
-                            sendRoomInvite(item.username);
-                            inviteBtn.setText("✔ Đã mời");
-                            inviteBtn.setStyle(
-                                "-fx-font-family: 'Patrick Hand'; -fx-font-size: 12px; " +
-                                "-fx-background-color: #E2E8F0; -fx-text-fill: #64748B; -fx-background-radius: 6px; " +
-                                "-fx-padding: 3 8;"
-                            );
-                            inviteBtn.setDisable(true);
-                            PauseTransition cooldown = new PauseTransition(Duration.seconds(4));
-                            cooldown.setOnFinished(done -> {
-                                inviteBtn.setText("✉ Mời lại");
-                                inviteBtn.setDisable(false);
-                            });
-                            cooldown.play();
-                        });
+                        inviteBtn.setOnAction(e -> sendRoomInvite(item.username));
                         card.getChildren().addAll(avatarPane, info, spacer, onlineBadge, inviteBtn);
                     } else {
                         Label offlineLbl = new Label("⚫ Ngoại tuyến");
@@ -478,11 +497,35 @@ public class RoomScreen {
 
     private void sendRoomInvite(String targetUsername) {
         if (targetUsername == null || targetUsername.trim().isEmpty()) return;
+        if (inviteWaitSeconds(targetUsername) > 0) return;
+        if (roomMembers.contains(targetUsername) || friendList.stream()
+                .anyMatch(friend -> targetUsername.equals(friend.username) && friend.roomId != null)) return;
+        setInviteCooldown(targetUsername, 15_000);
         Envelope env = new Envelope(MessageType.ROOM_INVITE_SEND);
         env.put("roomId", roomId);
         env.put("targetUsername", targetUsername);
         app.getWsClient().send(env);
-        DoodleDialog.showToast(app.getPrimaryStage(), "✉ Đã gửi lời mời tham gia tới @" + targetUsername);
+    }
+
+    private long inviteWaitSeconds(String username) {
+        long remaining = inviteRetryAtNanos.getOrDefault(username, 0L) - System.nanoTime();
+        return remaining <= 0 ? 0 : (remaining + 999_999_999L) / 1_000_000_000L;
+    }
+
+    private void setInviteCooldown(String username, long durationMillis) {
+        if (username == null) return;
+        if (durationMillis > 0) inviteRetryAtNanos.put(username, System.nanoTime() + durationMillis * 1_000_000L);
+        else inviteRetryAtNanos.remove(username);
+        if (friendListView != null) friendListView.refresh();
+        if (inviteCooldownClock == null) {
+            inviteCooldownClock = new Timeline(new KeyFrame(Duration.millis(250), event -> {
+                inviteRetryAtNanos.entrySet().removeIf(entry -> entry.getValue() <= System.nanoTime());
+                if (friendListView != null) friendListView.refresh();
+                if (inviteRetryAtNanos.isEmpty() || app.getPrimaryStage().getScene() != scene) inviteCooldownClock.stop();
+            }));
+            inviteCooldownClock.setCycleCount(Timeline.INDEFINITE);
+        }
+        if (!inviteRetryAtNanos.isEmpty()) inviteCooldownClock.play();
     }
 
     private void toggleReady() {
@@ -550,6 +593,9 @@ public class RoomScreen {
                 case FRIEND_LIST:
                     onFriendListUpdate(env);
                     break;
+                case PLAYER_LIST:
+                    updateFriendRoomPresence(env);
+                    break;
                 case FRIEND_PENDING_LIST:
                     onPendingFriendsUpdate(env);
                     break;
@@ -559,9 +605,13 @@ public class RoomScreen {
                 case FRIEND_UPDATE:
                 case FRIEND_REMOVE:
                 case FRIEND_RESPONSE:
+                    if ("ROOM_INVITE".equals(env.getString("action"))) {
+                        setInviteCooldown(env.getString("targetUsername"), env.getData().path("retryAfterMillis").asLong(0));
+                        if (env.getContent() != null) DoodleDialog.showToast(app.getPrimaryStage(), env.getContent());
+                    }
                     requestFriendsList();
                     requestPendingFriendsList();
-                    if (!env.isSuccess() && env.getContent() != null) {
+                    if (!env.isSuccess() && env.getContent() != null && !"ROOM_INVITE".equals(env.getString("action"))) {
                         DoodleDialog.showToast(app.getPrimaryStage(), env.getContent());
                     }
                     break;
@@ -585,6 +635,7 @@ public class RoomScreen {
                     break;
                 case GAME_START:
                 case MATCH_START:
+                    stopStartCountdown();
                     app.showGameScreen(roomId, env);
                     break;
                 case ROOM_DISSOLVED:
@@ -633,6 +684,7 @@ public class RoomScreen {
                 fe.avatar = f.has("avatar") ? f.get("avatar").asText() : "1";
                 fe.rankingScore = f.has("rankingScore") ? f.get("rankingScore").asInt() : 0;
                 fe.isOnline = f.has("isOnline") && f.get("isOnline").asBoolean();
+                fe.roomId = f.path("roomId").asText(null);
                 friendList.add(fe);
             });
         }
@@ -651,6 +703,14 @@ public class RoomScreen {
 
     private void onRoomUpdate(Envelope env) {
         if (env.getData() == null) return;
+
+        if (env.getData().has("startCountdownDeadlineMillis")) {
+            long deadline = env.getData().path("startCountdownDeadlineMillis").asLong(0);
+            if (deadline > 0) showStartCountdown(new Envelope(MessageType.ROOM_UPDATE)
+                    .put("deadlineMillis", deadline)
+                    .put("serverTime", env.getData().path("serverTime").asLong(System.currentTimeMillis())));
+            else stopStartCountdown();
+        }
 
         if (env.getData().has("roomName")) {
             roomName = env.getData().get("roomName").asText();
@@ -674,6 +734,9 @@ public class RoomScreen {
 
         if (env.getData().has("players")) {
             reconnectLabels.clear();
+            roomMembers.clear();
+            env.getData().get("players").forEach(player -> roomMembers.add(player.path("username").asText()));
+            if (friendListView != null) friendListView.refresh();
             playersListVBox.getChildren().clear();
             JsonNode playersNode = env.getData().get("players");
 
@@ -752,6 +815,63 @@ public class RoomScreen {
             }
             if (!reconnectLabels.isEmpty() && scene == app.getPrimaryStage().getScene()) reconnectClock.play();
         }
+    }
+
+    private void updateFriendRoomPresence(Envelope env) {
+        if (env.getData() == null || !env.getData().path("players").isArray()) return;
+        java.util.Map<String, JsonNode> presence = new java.util.HashMap<>();
+        env.getData().get("players").forEach(player -> presence.put(player.path("username").asText(), player));
+        for (LobbyScreen.FriendEntry friend : friendList) {
+            JsonNode player = presence.get(friend.username);
+            friend.isOnline = player != null;
+            friend.roomId = player == null ? null : player.path("roomId").asText(null);
+        }
+        if (friendListView != null) friendListView.refresh();
+    }
+
+    private void showStartCountdown(Envelope env) {
+        long deadline = env.getData().path("deadlineMillis").asLong(0);
+        if (deadline <= 0 || deadline == startCountdownDeadlineMillis) return;
+        stopStartCountdown();
+        startCountdownDeadlineMillis = deadline;
+        long serverTime = env.getData().path("serverTime").asLong(System.currentTimeMillis());
+        startCountdownRemainingMillis = Math.max(0, deadline - serverTime);
+        startCountdownStartedNanos = System.nanoTime();
+        startCountdownOverlay.setVisible(true);
+        startCountdownClock = new Timeline(new KeyFrame(Duration.millis(60), event -> updateStartCountdown()));
+        startCountdownClock.setCycleCount(Timeline.INDEFINITE);
+        updateStartCountdown();
+        if (lastStartCountdownNumber > 0) startCountdownClock.play();
+    }
+
+    private void updateStartCountdown() {
+        long elapsed = (System.nanoTime() - startCountdownStartedNanos) / 1_000_000;
+        long remaining = Math.max(0, startCountdownRemainingMillis - elapsed);
+        int number = (int) Math.ceil(remaining / 1_000.0);
+        if (number == lastStartCountdownNumber) return;
+        lastStartCountdownNumber = number;
+        startCountdownNumber.setText(number > 0 ? Integer.toString(number) : "BẮT ĐẦU!");
+        startCountdownNumber.setStyle("-fx-font-family: 'Amatic SC'; -fx-font-size: "
+                + (number > 0 ? "170" : "90") + "px; -fx-font-weight: bold; -fx-text-fill: #F5B800;");
+        ScaleTransition pop = new ScaleTransition(Duration.millis(220), startCountdownNumber);
+        pop.setFromX(1.35);
+        pop.setFromY(1.35);
+        pop.setToX(1);
+        pop.setToY(1);
+        pop.playFromStart();
+        if (number > 0) GameSound.playStartTick();
+        else {
+            GameSound.playStartGo();
+            startCountdownClock.stop();
+        }
+    }
+
+    public void stopStartCountdown() {
+        if (startCountdownClock != null) startCountdownClock.stop();
+        startCountdownClock = null;
+        startCountdownDeadlineMillis = 0;
+        lastStartCountdownNumber = -1;
+        if (startCountdownOverlay != null) startCountdownOverlay.setVisible(false);
     }
 
     private void updateRoomAccess(boolean hasPassword) {

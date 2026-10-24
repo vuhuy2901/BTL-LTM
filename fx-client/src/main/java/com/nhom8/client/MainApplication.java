@@ -612,18 +612,7 @@ public class MainApplication extends Application {
                     });
             return;
         } else if (envelope.getType() == MessageType.ROOM_INVITE_NOTIFY) {
-            String inviter = envelope.getString("inviterUsername");
-            String rId = envelope.getString("roomId");
-            DoodleDialog.confirm(primaryStage, "💌 Lời mời chơi game",
-                    "Người bạn " + (inviter != null ? inviter : "bạn bè") + " vừa mời bạn vào phòng #" + rId + "!\nBạn có muốn tham gia ngay không?",
-                    "THAM GIA NGAY", "ĐỂ SAU", yes -> {
-                        if (rId != null && webSocketClient != null) {
-                            Envelope joinEnv = new Envelope(MessageType.ROOM_INVITE_RESPOND);
-                            joinEnv.put("roomId", rId);
-                            joinEnv.putBoolean("accept", yes);
-                            webSocketClient.send(joinEnv);
-                        }
-                    });
+            showRoomInvitation(envelope);
             return;
         }
 
@@ -721,6 +710,16 @@ public class MainApplication extends Application {
         }
     }
 
+    public void showRoomInvitation(Envelope invitation) {
+        DoodleDialog.roomInvitation(primaryStage, invitation, accept -> {
+            String roomId = invitation.getString("roomId");
+            if (roomId != null && webSocketClient != null) {
+                webSocketClient.send(new Envelope(MessageType.ROOM_INVITE_RESPOND)
+                        .put("roomId", roomId).put("accept", accept));
+            }
+        });
+    }
+
     public void openPrivateChat(String targetUsername, String targetDisplayName) {
         if (targetUsername == null || targetUsername.equalsIgnoreCase(currentUsername)) return;
         if (lobbyScreen != null) lobbyScreen.openConversation(targetUsername, targetDisplayName);
@@ -805,6 +804,7 @@ public class MainApplication extends Application {
     }
 
     public void showGameScreen(String roomId) {
+        if (roomScreen != null) roomScreen.stopStartCountdown();
         gameScreen = new GameScreen(this, roomId);
         Scene scene = gameScreen.createScene();
         applyTheme(scene);

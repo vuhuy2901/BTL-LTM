@@ -100,6 +100,20 @@ class AdminAndConcurrencyTest {
             p3.send(MessageType.READY, "isReady", true);
             p1.send(MessageType.READY, "isReady", true);
             p2.send(MessageType.READY, "isReady", true);
+            Envelope countdown;
+            do { countdown = p1.await(MessageType.ROOM_UPDATE); }
+            while (countdown.getData().path("startCountdownDeadlineMillis").asLong() == 0);
+            assertTrue(countdown.getData().path("startCountdownDeadlineMillis").asLong()
+                    > countdown.getData().path("serverTime").asLong());
+            assertEquals(before, matches.count());
+            p2.send(MessageType.READY, "isReady", false);
+            do { countdown = p1.await(MessageType.ROOM_UPDATE); }
+            while (countdown.getData().path("startCountdownDeadlineMillis").asLong() > 0);
+            Thread.sleep(3200);
+            assertEquals(before, matches.count());
+            p2.send(MessageType.READY, "isReady", true);
+            do { countdown = p1.await(MessageType.ROOM_UPDATE); }
+            while (countdown.getData().path("startCountdownDeadlineMillis").asLong() == 0);
             p1.await(MessageType.GAME_START);
             Thread.sleep(400);
             assertEquals(before + 1, matches.count());

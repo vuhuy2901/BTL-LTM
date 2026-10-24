@@ -144,6 +144,7 @@ public class FriendService {
             friendMap.put("avatar", friend.getAvatar());
             friendMap.put("rankingScore", friend.getRankingScore());
             friendMap.put("isOnline", gameService.isUserOnline(friend.getUsername()));
+            friendMap.put("roomId", gameService.getUserRoomId(friend.getUsername()));
             result.add(friendMap);
         }
         return result;

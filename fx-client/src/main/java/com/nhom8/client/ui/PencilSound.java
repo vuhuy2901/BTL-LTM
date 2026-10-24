@@ -29,6 +29,7 @@ public final class PencilSound {
      * Tự động điều tiết tần suất (throttle) khoảng 75ms/lần để nét vẽ mượt mà tự nhiên.
      */
     public static void playDraw(boolean isEraser) {
+        if (!GameSound.isEnabled()) return;
         long now = System.currentTimeMillis();
         if (now - lastDrawTime < 75) {
             return;
@@ -37,6 +38,7 @@ public final class PencilSound {
 
         java.util.concurrent.CompletableFuture.runAsync(() -> {
             try {
+                if (!GameSound.isEnabled()) return;
                 if (!initialized) initialize();
                 Clip clip;
                 if (isEraser) {

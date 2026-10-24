@@ -69,6 +69,8 @@ public class GameSession {
 
     /** Future của timer đang chạy (để cancel khi cần) */
     private ScheduledFuture<?> currentTimer;
+    private ScheduledFuture<?> startCountdownTask;
+    private volatile long startCountdownDeadlineMillis;
 
     /** Timer gửi cập nhật đồng hồ mỗi giây */
     private ScheduledFuture<?> countdownTimer;
@@ -166,13 +168,39 @@ public class GameSession {
     // GIAI ĐOẠN 0: KHỞI TẠO TRẬN ĐẤU
     // ========================================================================
 
+    public synchronized void beginStartCountdown() {
+        if (gameActive || room.isPlaying() || startCountdownDeadlineMillis > 0 || !room.allPlayersReady()) return;
+        startCountdownDeadlineMillis = System.currentTimeMillis() + 3_000;
+        getGameService().broadcastRoomUpdate(room);
+        startCountdownTask = scheduler.schedule(() -> {
+            synchronized (this) {
+                if (startCountdownDeadlineMillis == 0) return;
+                startCountdownDeadlineMillis = 0;
+                startCountdownTask = null;
+                if (room.allPlayersReady()) startGame();
+                else getGameService().broadcastRoomUpdate(room);
+            }
+        }, 3, TimeUnit.SECONDS);
+    }
+
+    public synchronized void cancelStartCountdown() {
+        if (startCountdownDeadlineMillis == 0) return;
+        startCountdownDeadlineMillis = 0;
+        if (startCountdownTask != null) startCountdownTask.cancel(false);
+        startCountdownTask = null;
+        getGameService().broadcastRoomUpdate(room);
+    }
+
+    public long getStartCountdownDeadlineMillis() { return startCountdownDeadlineMillis; }
+
     /**
      * Bắt đầu trận đấu: cố định thứ tự người chơi, tạo bản ghi Match trong DB,
      * và khởi động giai đoạn chọn chủ đề.
      */
     public synchronized void startGame() {
         if (gameActive || room.isPlaying()) return;
-        if (room.getPlayerCount() < Room.MIN_PLAYERS || room.getPlayerCount() > Room.MAX_PLAYERS) return;
+        if (room.getPlayerCount() < Room.MIN_PLAYERS || room.getPlayerCount() > Room.MAX_PLAYERS
+                || !room.allPlayersReady()) return;
         gameActive = true;
         finalizedDrawings.clear();
         latestResult = null;
@@ -1010,6 +1038,7 @@ public class GameSession {
      * Khác với endGame(): KHÔNG lưu kết quả, KHÔNG cộng điểm.
      */
     public synchronized void cancelGame() {
+        cancelStartCountdown();
         if (!gameActive) return;
         gameActive = false;
         currentPhase = "";

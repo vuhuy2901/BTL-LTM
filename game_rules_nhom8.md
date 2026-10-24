@@ -62,6 +62,8 @@ Màn hình Bảng xếp hạng: Bảng tổng hợp điểm tích lũy toàn h�
 2.3. Các quy tắc nghiệp vụ quan trọng
 Quy mô phòng chơi: Tối thiểu 3 người đang kết nối để bắt đầu và tối đa 8 người chơi trong một phòng. Trận đang chơi được tiếp tục khi còn ít nhất 2 thành viên hợp lệ (bao gồm thành viên đang được giữ chỗ trong thời hạn khôi phục). Phòng chờ được phép có 1–2 người trong khi chờ đủ người; người thứ 9 không được tham gia phòng.
 Điều kiện bắt đầu: Trận đấu chỉ được khởi tạo khi 100% thành viên trong phòng nhấn Sẵn sàng.
+Lời mời vào phòng: Sau khi gửi thành công lời mời tới một người bạn, người gửi phải đợi 15 giây trước khi mời lại cùng người đó. Server kiểm tra thời gian chờ theo cặp người gửi–người nhận, kể cả khi đổi phòng hoặc kết nối lại; các yêu cầu lặp trong thời gian chờ không gửi thêm thông báo tới người nhận. Người đã ở trong phòng không thể được mời thêm.
+Sau khi đủ ít nhất 3 người đang kết nối và tất cả đã Sẵn sàng, Server phát đếm ngược 3–2–1 trong phòng chờ rồi mới bắt đầu chọn chủ đề. Nếu điều kiện sẵn sàng thay đổi trong lúc đếm, Server hủy đếm ngược; khi đủ điều kiện trở lại, đếm lại từ 3.
 Quy tắc chọn từ khóa: Mỗi người nhận 3 từ khóa gợi ý riêng không trùng lắp trong cùng phòng, có 10 giây để chọn (quá giờ Server tự chọn).
 Pha vẽ tranh: Thời gian tối đa 60 giây. Không được dùng chữ hoặc số để trực tiếp ghi đáp án lên tranh vẽ.
 Pha đoán tranh: Thời gian 30 giây cho mỗi bức tranh. Người đoán được phép nhập và gửi đáp án nhiều lần.

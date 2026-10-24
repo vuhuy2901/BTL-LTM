@@ -50,6 +50,9 @@ public class GameService {
     /** Bảng ánh xạ username → ClientSession cho tất cả người chơi đang trực tuyến */
     private final ConcurrentHashMap<String, ClientSession> onlineClients = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Set<String>> roomInvites = new ConcurrentHashMap<>();
+    private static final long ROOM_INVITE_COOLDOWN_MS = 15_000;
+    private record InvitePair(String sender, String recipient) { }
+    private final Map<InvitePair, Long> roomInviteRetryAt = new HashMap<>();
     private final ConcurrentHashMap<String, PendingReconnect> pendingReconnects = new ConcurrentHashMap<>();
     private final ScheduledExecutorService reconnectScheduler = Executors.newSingleThreadScheduledExecutor(task -> {
         Thread thread = new Thread(task, "player-reconnect-expiry");
@@ -379,6 +382,7 @@ public class GameService {
         }
 
         room.addPlayer(handler);
+        room.getGameSession().cancelStartCountdown();
         if (invited) {
             Set<String> invitees = roomInvites.get(roomId);
             if (invitees != null) invitees.remove(handler.getUsername());
@@ -411,6 +415,7 @@ public class GameService {
         if (room == null) return;
 
         room.removePlayer(handler);
+        room.getGameSession().cancelStartCountdown();
         handler.setCurrentRoomId(null);
         handler.setConnectionState(com.nhom8.common.dto.ConnectionState.CONNECTED);
         PendingReconnect pending = pendingReconnects.remove(handler.getUsername());
@@ -422,6 +427,7 @@ public class GameService {
             roomManager.removeRoom(roomId);
         } else {
             broadcastRoomUpdate(room);
+            if (!room.isPlaying() && room.allPlayersReady()) room.getGameSession().beginStartCountdown();
         }
 
         broadcastPlayerList();
@@ -434,14 +440,16 @@ public class GameService {
 
         Room room = roomManager.getRoom(roomId);
         if (room == null) return;
+        if (room.isPlaying()) return;
 
         boolean isReady = request.getBoolean("isReady", true);
 
         room.setPlayerReady(handler.getUsername(), isReady);
+        if (!isReady) room.getGameSession().cancelStartCountdown();
         broadcastRoomUpdate(room);
 
         if (room.getPlayerCount() >= Room.MIN_PLAYERS && room.allPlayersReady()) {
-            room.getGameSession().startGame();
+            room.getGameSession().beginStartCountdown();
         }
     }
 
@@ -480,6 +488,7 @@ public class GameService {
         if (targetSession != null && room.getPlayerUsernames().contains(targetUsername)) {
             // Remove player from room
             room.removePlayer(targetSession);
+            room.getGameSession().cancelStartCountdown();
             targetSession.setCurrentRoomId(null);
             targetSession.setConnectionState(com.nhom8.common.dto.ConnectionState.CONNECTED);
 
@@ -490,6 +499,7 @@ public class GameService {
 
             // Update room
             broadcastRoomUpdate(room);
+            if (!room.isPlaying() && room.allPlayersReady()) room.getGameSession().beginStartCountdown();
             broadcastPlayerList();
             broadcastRoomList();
         }
@@ -958,6 +968,12 @@ public class GameService {
     // XỬ LÝ HỆ THỐNG BẠN BÈ
     // ========================================================================
 
+    public String getUserRoomId(String username) {
+        ClientSession session = onlineClients.get(username);
+        if (session == null || session.getCurrentRoomId() == null) return null;
+        return roomManager.getRoom(session.getCurrentRoomId()) == null ? null : session.getCurrentRoomId();
+    }
+
     public boolean isUserOnline(String username) {
         return onlineClients.containsKey(username);
     }
@@ -1065,63 +1081,94 @@ public class GameService {
      * Xử lý yêu cầu mời bạn bè vào phòng chơi.
      * Chỉ có thể mời người là bạn bè và đang online.
      */
-    public void handleRoomInviteSend(ClientSession handler, Envelope request) {
+    public synchronized void handleRoomInviteSend(ClientSession handler, Envelope request) {
         String targetUsername = request.get("targetUsername");
         String myUsername = handler.getUsername();
         String roomId = handler.getCurrentRoomId();
 
         if (myUsername == null || targetUsername == null || roomId == null) {
-            handler.sendMessage(Envelope.error(MessageType.FRIEND_UPDATE,
-                    "Bạn chưa ở trong phòng chơi nào."));
+            roomInviteFeedback(handler, targetUsername, false, "Bạn chưa ở trong phòng chơi nào.", 0);
             return;
         }
 
         User me = userRepository.findByUsername(myUsername);
         User target = userRepository.findByUsername(targetUsername);
-        if (me == null || target == null) return;
+        if (me == null || target == null) {
+            roomInviteFeedback(handler, targetUsername, false, "Không tìm thấy người chơi.", 0);
+            return;
+        }
+
+        long now = clock.getAsLong();
+        roomInviteRetryAt.entrySet().removeIf(entry -> entry.getValue() <= now);
+        InvitePair pair = new InvitePair(me.getUsername(), target.getUsername());
+        long retryAfter = roomInviteRetryAt.getOrDefault(pair, 0L) - now;
+        if (retryAfter > 0) {
+            roomInviteFeedback(handler, targetUsername, false,
+                    "Vui lòng đợi " + ((retryAfter + 999) / 1000) + " giây trước khi mời lại người này.", retryAfter);
+            return;
+        }
 
         // Kiểm tra là bạn bè
         Friendship friendship = friendshipRepository.findByUsers(me, target);
         if (friendship == null || friendship.getStatus() != Friendship.FriendshipStatus.ACCEPTED) {
-            handler.sendMessage(Envelope.error(MessageType.FRIEND_UPDATE,
-                    "Bạn chỉ có thể mời bạn bè vào phòng."));
+            roomInviteFeedback(handler, targetUsername, false, "Bạn chỉ có thể mời bạn bè vào phòng.", 0);
             return;
         }
 
         ClientSession targetSession = onlineClients.get(targetUsername);
         if (targetSession == null) {
-            handler.sendMessage(Envelope.error(MessageType.FRIEND_UPDATE,
-                    targetUsername + " đang offline."));
+            roomInviteFeedback(handler, targetUsername, false, targetUsername + " đang offline.", 0);
             return;
         }
 
         if (targetSession.getCurrentRoomId() != null) {
-            handler.sendMessage(Envelope.error(MessageType.FRIEND_UPDATE,
-                    targetUsername + " đang ở trong phòng khác."));
+            roomInviteFeedback(handler, targetUsername, false,
+                    targetUsername + (roomId.equals(targetSession.getCurrentRoomId())
+                            ? " đã ở trong phòng này." : " đang ở trong phòng khác."), 0);
+            sendPlayerList(handler);
             return;
         }
 
         Room room = roomManager.getRoom(roomId);
         if (room == null || !roomId.equals(handler.getCurrentRoomId())) {
-            handler.sendMessage(Envelope.error(MessageType.FRIEND_UPDATE, "Bạn cần ở trong phòng muốn mời người chơi."));
+            roomInviteFeedback(handler, targetUsername, false, "Bạn cần ở trong phòng muốn mời người chơi.", 0);
             return;
         }
         if (room.isPlaying() || room.isFull()) {
-            handler.sendMessage(Envelope.error(MessageType.FRIEND_UPDATE, "Phòng đang chơi hoặc đã đủ người, không thể mời thêm."));
+            roomInviteFeedback(handler, targetUsername, false, "Phòng đang chơi hoặc đã đủ người, không thể mời thêm.", 0);
             return;
         }
 
+        roomInviteRetryAt.put(pair, now + ROOM_INVITE_COOLDOWN_MS);
         roomInvites.computeIfAbsent(roomId, ignored -> ConcurrentHashMap.newKeySet()).add(targetUsername);
         Envelope invite = new Envelope(MessageType.ROOM_INVITE_NOTIFY);
         invite.put("roomId", roomId);
         invite.put("roomName", room.getRoomName());
         invite.put("inviterUsername", myUsername);
+        invite.put("inviterDisplayName", me.getDisplayName());
         invite.put("inviterAvatar", me.getAvatar());
+        invite.put("hostUsername", room.getHostUsername());
+        ClientSession host = room.getPlayer(room.getHostUsername());
+        invite.put("hostDisplayName", host == null ? room.getHostUsername() : host.getDisplayName());
+        invite.put("currentPlayers", room.getPlayerCount());
+        invite.put("maxPlayers", Room.MAX_PLAYERS);
+        invite.put("maxRounds", room.getMaxRounds());
+        invite.put("drawTime", room.getDrawTime());
+        invite.put("language", room.getLanguage());
+        invite.put("hasPassword", room.hasPassword());
+        invite.put("status", room.getStatus().name());
         invite.setContent(myUsername + " mời bạn vào phòng " + room.getRoomName() + "!");
         targetSession.sendMessage(invite);
 
-        handler.sendMessage(Envelope.success(MessageType.FRIEND_UPDATE,
-                "Đã gửi lời mời vào phòng cho " + targetUsername + "."));
+        roomInviteFeedback(handler, targetUsername, true,
+                "Đã gửi lời mời vào phòng cho " + targetUsername + ".", ROOM_INVITE_COOLDOWN_MS);
+    }
+
+    private void roomInviteFeedback(ClientSession handler, String target, boolean success, String message, long retryAfter) {
+        Envelope response = success ? Envelope.success(MessageType.FRIEND_UPDATE, message)
+                : Envelope.error(MessageType.FRIEND_UPDATE, message);
+        handler.sendMessage(response.put("action", "ROOM_INVITE").put("targetUsername", target)
+                .put("retryAfterMillis", retryAfter));
     }
 
     /**
@@ -1157,6 +1204,7 @@ public class GameService {
             if (wentOffline && roomId != null) {
                 Room room = roomManager.getRoom(roomId);
                 if (room != null) {
+                    room.getGameSession().cancelStartCountdown();
                     long deadline = clock.getAsLong() + reconnectGraceMillis;
                     handler.setConnectionState(com.nhom8.common.dto.ConnectionState.RECONNECTING);
                     handler.setReconnectDeadline(deadline);
@@ -1323,6 +1371,7 @@ public class GameService {
         msg.put("maxPlayers", Room.MAX_PLAYERS);
         msg.put("serverTime", System.currentTimeMillis());
         msg.put("status", room.getStatus().name());
+        msg.put("startCountdownDeadlineMillis", room.getGameSession().getStartCountdownDeadlineMillis());
         msg.put("maxRounds", room.getMaxRounds());
         msg.put("drawTime", room.getDrawTime());
         msg.put("language", room.getLanguage());

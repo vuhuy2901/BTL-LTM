@@ -76,6 +76,34 @@ class SessionRecoveryTest {
         return next;
     }
     void lose(Client client) { client.open = false; service.handleDisconnect(client); }
+
+    @Test void roomInvitesRejectRepeatedAndConcurrentSendsUntilFifteenSeconds() throws Exception {
+        Client sender = clients.get(0);
+        Client recipient = login("p4", null, null);
+        Friendship friendship = new Friendship(records.get("p1"), records.get("p4"));
+        friendship.setStatus(Friendship.FriendshipStatus.ACCEPTED);
+        FriendshipRepository friendships = (FriendshipRepository) ReflectionTestUtils.getField(service, "friendshipRepository");
+        when(friendships.findByUsers(any(User.class), any(User.class))).thenReturn(friendship);
+        Envelope request = new Envelope(MessageType.ROOM_INVITE_SEND).put("targetUsername", "p4");
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        try {
+            List<Future<?>> sends = new ArrayList<>();
+            for (int i = 0; i < 12; i++) sends.add(executor.submit(() -> service.handleRoomInviteSend(sender, request)));
+            for (Future<?> send : sends) send.get(5, TimeUnit.SECONDS);
+        } finally { executor.shutdownNow(); }
+        assertEquals(1, recipient.messages.stream().filter(e -> e.getType() == MessageType.ROOM_INVITE_NOTIFY).count());
+        assertFalse(sender.last(MessageType.FRIEND_UPDATE).isSuccess());
+        assertEquals(15_000, sender.last(MessageType.FRIEND_UPDATE).getData().path("retryAfterMillis").asLong());
+        now.addAndGet(14_999);
+        service.handleRoomInviteSend(sender, request);
+        assertEquals(1, sender.last(MessageType.FRIEND_UPDATE).getData().path("retryAfterMillis").asLong());
+        assertEquals(1, recipient.messages.stream().filter(e -> e.getType() == MessageType.ROOM_INVITE_NOTIFY).count());
+        now.incrementAndGet();
+        service.handleRoomInviteSend(sender, request);
+        assertTrue(sender.last(MessageType.FRIEND_UPDATE).isSuccess());
+        assertEquals(2, recipient.messages.stream().filter(e -> e.getType() == MessageType.ROOM_INVITE_NOTIFY).count());
+    }
+
     void drawing() {
         clients.forEach(c -> room.setPlayerReady(c.getUsername(), true));
         room.getGameSession().startGame();

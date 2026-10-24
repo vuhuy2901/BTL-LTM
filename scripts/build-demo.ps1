@@ -30,8 +30,8 @@ function Write-Archive([string]$source, [string]$destination) {
 Push-Location $repoRoot
 try {
     if (-not $SkipBuild) {
-        & mvn.cmd -q -DskipTests package
-        if ($LASTEXITCODE -ne 0) { throw 'Maven package that bai. Hay tat server dang chay roi thu lai.' }
+        & mvn.cmd -q -DskipTests install
+        if ($LASTEXITCODE -ne 0) { throw 'Maven install that bai. Hay tat server dang chay roi thu lai.' }
         & mvn.cmd -q -pl fx-client dependency:copy-dependencies '-DincludeScope=runtime'
         if ($LASTEXITCODE -ne 0) { throw 'Khong sao chep duoc thu vien client.' }
     }
