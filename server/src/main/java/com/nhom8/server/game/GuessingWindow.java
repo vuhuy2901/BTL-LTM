@@ -40,10 +40,11 @@ public final class GuessingWindow {
         if (exposure != null) exposure.left = true;
     }
 
-    public synchronized int awardCorrect(String username, long acceptedAt) {
+    public synchronized int awardCorrect(String username, long acceptedAt, int correctRank) {
         Exposure exposure = players.get(username);
         if (exposure == null || exposure.left || exposure.connectedSince == null || exposure.score != null) return 0;
-        int score = ScoringService.calculateGuessScore(startedAt, acceptedAt, durationMs);
+        if (!ScoringService.isWithinGuessWindow(startedAt, acceptedAt, durationMs)) return 0;
+        int score = ScoringService.calculateGuessScore(correctRank, players.size());
         if (score > 0) exposure.score = score;
         return score;
     }

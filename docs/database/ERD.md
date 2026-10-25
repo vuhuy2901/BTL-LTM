@@ -1,4 +1,4 @@
-# ERD từ bảng H2 và entity
+# ERD từ bảng MySQL và entity
 
 ```mermaid
 erDiagram
@@ -10,6 +10,7 @@ erDiagram
     MATCHES ||--o{ MATCH_RESULTS : match_id
     USERS ||--o{ PAINTINGS : painter_id
     MATCHES ||--o{ PAINTINGS : match_id
+    TOPIC_ENTRIES ||--o{ PAINTINGS : topic_entry_id
     USERS { int user_id PK
         string username UK
         string display_name UK
@@ -39,14 +40,12 @@ erDiagram
     PAINTINGS { int painting_id PK
         int match_id FK
         int painter_id FK
+        long topic_entry_id FK
         string topic
     }
-    CUSTOM_TOPICS { long id PK
-        string word UK
-    }
-    BUILT_IN_TOPIC_OVERRIDES { long id PK
-        string original_word UK
-        string replacement_word
+    TOPIC_ENTRIES { long id PK
+        string word
+        boolean active
     }
 ```
 

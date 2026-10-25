@@ -45,6 +45,8 @@ public class GameScreen {
     // Trạng thái phiên đấu
     private boolean isDrawingPhase = false;
     private boolean isGuessingPhase = false;
+    /** A correct guesser may chat for the remainder of the current painting. */
+    private boolean hasGuessedCurrentPainting;
     private boolean hasSubmittedDrawing = false;
     private boolean submissionPending;
     private javafx.animation.Timeline draftSync;
@@ -153,6 +155,9 @@ public class GameScreen {
         soundButton.setTooltip(new Tooltip("Bật/tắt âm thanh"));
         soundButton.setOnAction(e -> {
             GameSound.setEnabled(!GameSound.isEnabled());
+            if (!GameSound.isEnabled()) {
+                PencilSound.stopDraw();
+            }
             soundButton.setText(GameSound.isEnabled() ? "🔊" : "🔇");
         });
 
@@ -483,6 +488,7 @@ public class GameScreen {
         });
 
         canvas.setOnMouseReleased(e -> {
+            PencilSound.stopDraw();
             if (!isDrawingPhase || hasSubmittedDrawing || submissionPending) return;
             strokeInProgress = false;
             gc.lineTo(e.getX(), e.getY());
@@ -490,6 +496,10 @@ public class GameScreen {
             currentXPoints.add(e.getX());
             currentYPoints.add(e.getY());
             sendStrokeChunk();
+        });
+
+        canvas.setOnMouseExited(e -> {
+            PencilSound.stopDraw();
         });
     }
 
@@ -555,7 +565,7 @@ public class GameScreen {
         text = text.trim();
 
         if (isGuessingPhase) {
-            if (currentPainter.equals(app.getCurrentUsername())) {
+            if (currentPainter.equals(app.getCurrentUsername()) || hasGuessedCurrentPainting) {
                 sendChat(text);
             } else {
                 Envelope guessEnv = new Envelope(MessageType.GUESS_SUBMIT);
@@ -801,7 +811,9 @@ public class GameScreen {
         // Máy chủ đã chốt các tranh hợp lệ ở hạn cuối; không gửi bài nộp trễ.
 
         isDrawingPhase = false;
+        PencilSound.stopDraw();
         isGuessingPhase = true;
+        hasGuessedCurrentPainting = env.getBoolean("alreadyGuessed", false);
         resetWrongGuessFeedback();
         paintingLayer.setVisible(true);
         GameSound.playPhaseStart();
@@ -825,9 +837,9 @@ public class GameScreen {
             guessFeedbackLabel.setStyle("-fx-text-fill: #FFF3CD; -fx-font-weight: bold;");
         } else {
             topInfoLabel.setText("🔍 Đang đoán tranh của: " + currentPainter);
-            inputField.setPromptText("Nhập từ khóa đoán vào đây...");
+            inputField.setPromptText(hasGuessedCurrentPainting ? "Nhắn tin với mọi người..." : "Nhập từ khóa đoán vào đây...");
             guessFeedbackLabel.setText("Hãy nhanh tay đoán từ khóa!");
-            if (env.getBoolean("alreadyGuessed", false)) guessFeedbackLabel.setText("✔ Bạn đã đoán đúng tranh này.");
+            if (hasGuessedCurrentPainting) guessFeedbackLabel.setText("✔ Bạn đã đoán đúng — giờ có thể nhắn tin.");
             guessFeedbackLabel.setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
         }
 
@@ -937,11 +949,15 @@ public class GameScreen {
         boolean correct = env.getBoolean("correct", false);
         if (correct) {
             resetWrongGuessFeedback();
+            hasGuessedCurrentPainting = true;
             GameSound.playCorrect();
             int points = env.getInt("points", 0);
+            int rank = env.getInt("rank", 0);
             long elapsedMs = env.getData().path("elapsedMs").asLong(0);
-            guessFeedbackLabel.setText("🎉 Chính xác! +" + points + " điểm · " + String.format(java.util.Locale.ROOT, "%.3f", elapsedMs / 1000.0) + " giây");
+            guessFeedbackLabel.setText("🎉 Đoán đúng thứ " + rank + "! +" + points + " điểm · "
+                    + String.format(java.util.Locale.ROOT, "%.3f", elapsedMs / 1000.0) + " giây");
             guessFeedbackLabel.setStyle("-fx-text-fill: #52c41a; -fx-font-weight: bold; -fx-font-size: 13px;");
+            inputField.setPromptText("Nhắn tin với mọi người...");
         } else {
             GameSound.playWrongGuess();
             guessFeedbackLabel.setText("❌ Sai rồi! Hãy thử lại...");
@@ -1020,6 +1036,10 @@ public class GameScreen {
         else if (total == 0) details.append("Không có người đủ cơ hội đoán: 0 điểm, không phạt người vẽ.\n");
 
         details.append("💡 ").append(correctCount).append("/").append(total).append(" người đủ điều kiện đoán đúng:\n");
+        if (correctCount > 0 && total > 0) {
+            details.append("Điểm vẽ = làm tròn(100 × ").append(correctCount).append("/").append(total).append(") = ")
+                   .append(painterPoints).append(".\n");
+        }
 
         if (env.getData() != null && env.getData().has("guessDetails") && env.getData().get("guessDetails").size() > 0) {
             JsonNode guessDetails = env.getData().get("guessDetails");

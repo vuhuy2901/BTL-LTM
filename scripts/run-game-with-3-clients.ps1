@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot 'load-local-env.ps1')
+if (-not $env:DB_PASSWORD) { throw 'Đặt DB_PASSWORD trong .env hoặc biến môi trường trước khi khởi động.' }
 Set-Location -LiteralPath $projectRoot
 
 if (-not (Get-Command mvn -ErrorAction SilentlyContinue)) {

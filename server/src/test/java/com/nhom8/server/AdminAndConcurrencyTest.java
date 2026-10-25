@@ -2,7 +2,7 @@ package com.nhom8.server;
 
 import com.nhom8.common.message.Envelope;
 import com.nhom8.common.message.MessageType;
-import com.nhom8.server.repository.CustomTopicRepository;
+import com.nhom8.server.repository.TopicEntryRepository;
 import com.nhom8.server.repository.MatchRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 class AdminAndConcurrencyTest {
     @LocalServerPort int port;
-    @Autowired CustomTopicRepository topics;
+    @Autowired TopicEntryRepository topics;
     @Autowired MatchRepository matches;
 
     static class Client extends TextWebSocketHandler implements AutoCloseable {
@@ -76,13 +76,13 @@ class AdminAndConcurrencyTest {
             String word = "kiểm thử quản trị";
             admin.send(MessageType.ADMIN_TOPIC_ADD, "word", word);
             assertTrue(admin.await(MessageType.ADMIN_TOPIC_ADD).isSuccess());
-            assertTrue(topics.existsByWordIgnoreCase(word));
+            assertTrue(topics.findAll().stream().anyMatch(t -> t.isActive() && t.getWord().equals(word)));
             p1.send(MessageType.ADMIN_TOPIC_DELETE, "word", word);
             assertFalse(p1.await(MessageType.ADMIN_TOPIC_DELETE).isSuccess());
-            assertTrue(topics.existsByWordIgnoreCase(word));
+            assertTrue(topics.findAll().stream().anyMatch(t -> t.isActive() && t.getWord().equals(word)));
             admin.send(MessageType.ADMIN_TOPIC_DELETE, "word", word);
             assertTrue(admin.await(MessageType.ADMIN_TOPIC_DELETE).isSuccess());
-            assertFalse(topics.existsByWordIgnoreCase(word));
+            assertFalse(topics.findAll().stream().anyMatch(t -> t.isActive() && t.getWord().equals(word)));
 
             p1.send(MessageType.ROOM_CREATE, "roomName", "Kiểm thử");
             String roomId = p1.await(MessageType.ROOM_RESPONSE).getString("roomId");
@@ -173,7 +173,7 @@ class AdminAndConcurrencyTest {
             assertEquals("DRAWING", snapshot.getString("phase"));
             assertEquals(deadline, snapshot.getData().path("phaseDeadline").asLong());
             assertEquals(1, snapshot.getData().path("events").findValue("drawData").size());
-            assertEquals(2, matches.findAll().stream().filter(m -> m.getRoomId().equals(roomId)).findFirst().orElseThrow().getScoringVersion());
+            assertEquals(4, matches.findAll().stream().filter(m -> m.getRoomId().equals(roomId)).findFirst().orElseThrow().getScoringVersion());
             p2.send(MessageType.ROOM_CHAT_SEND, "content", "92839283");
             assertEquals("92839283", p3.await(MessageType.ROOM_CHAT_RECEIVE).getString("content"));
             p2.session.sendMessage(new TextMessage(new Envelope(MessageType.DIRECT_MESSAGE_SEND)

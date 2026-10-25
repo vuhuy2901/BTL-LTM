@@ -26,7 +26,7 @@ Kết nối Mạng
 Truyền dữ liệu real-time hai chiều giữa Server và Client (hình vẽ, đáp án, trạng thái phòng, tin nhắn). Hỗ trợ cả cơ chế Request-Response (Client → Server) và Push/Broadcast (Server → Client) để đồng bộ trạng thái phòng và chat.
 Module tính điểm
 Xử lý nghiệp vụ điểm
-Điểm đoán dựa trên thời gian máy chủ chấp nhận đáp án đúng đầu tiên: round(20 + 80 × (30000 − t) / 30000). Điểm vẽ kết hợp 70% tỷ lệ đoán đúng và 30% tốc độ đoán: round(70 × k/m + 30 × S/(100 × m)). Chỉ tính người đủ điều kiện; không có người đủ cơ hội đoán thì không phạt. Công thức, ví dụ và ngoại lệ tại mục 4.
+Điểm đoán dựa trên thứ tự đáp án đúng và số người có quyền đoán khi tranh bắt đầu: người đầu tiên luôn nhận 100 điểm, các vị trí sau chia đều theo quy mô phòng. Điểm người vẽ theo tỷ lệ người đúng trên số người đủ điều kiện đoán, đạt 100 điểm nếu tất cả đều đúng. Không có người đủ cơ hội đoán thì không phạt. Công thức, ví dụ và ngoại lệ tại mục 4.
 
 1.3. Luồng dữ liệu chính trong hệ thống
 Đăng nhập & Xác thực: Client gửi thông tin tài khoản → Server xác thực thông tin với Cơ sở dữ liệu → Server khởi tạo phiên làm việc, trả về kết quả đăng nhập kèm danh sách người chơi đang online.
@@ -42,12 +42,13 @@ Tổng kết & Cập nhật: Sau khi kết thúc tất cả lượt đoán, Serv
 Module Xác thực (Authentication): Quản lý toàn bộ quy trình đăng ký, đăng nhập, đăng xuất và khôi phục tài khoản. Đảm bảo an toàn thông tin và duy trì phiên làm việc cho người chơi.
 Module Quản lý người chơi (Player Management): Theo dõi danh sách người chơi online/offline, cập nhật trạng thái (rỗi, trong phòng, đang đấu), quản lý hồ sơ cá nhân, cấp độ và điểm số tích lũy.
 Module Xã hội (Social): Quản lý các mối quan hệ bạn bè, gửi/nhận lời mời kết bạn, tìm kiếm người chơi, xem profile chi tiết và lịch sử các trận đấu đã tham gia.
+Lịch sử trận: Người đã tham gia trận được xem từng vòng, từng lượt vẽ, người vẽ, từ khóa, tranh và kết quả lượt đoán đã lưu. Tranh thuộc phiên bản cũ chưa có số vòng/lượt và log đoán thì hiển thị là dữ liệu cũ; không suy đoán lại thông tin thiếu.
 Module Giao tiếp (Chat): Đảm nhận hai kênh giao tiếp riêng biệt: Kênh chat cá nhân (Private Chat 1-1 giữa bạn bè, có lưu lịch sử) và Kênh chat phòng (Room Chat dành cho thành viên phòng chờ).
 Module Quản lý phòng chơi (Room Management): Xử lý việc tạo phòng, tìm phòng, vào/ra phòng. Kiểm tra điều kiện bắt đầu (3–8 người đang kết nối, 100% sẵn sàng). Phòng chờ có thể có 1–2 người nhưng chưa được bắt đầu trận đấu. Không nhận thêm người khi phòng đã đủ 8 người, kể cả các vị trí được giữ trong 30 giây mất kết nối. Trận đang chơi tiếp tục khi còn ít nhất 2 thành viên hợp lệ; chỉ chuyển quyền chủ phòng khi người đó xác nhận rời phòng hoặc hết hạn khôi phục.
 Module Trận đấu (Game Engine): Đóng vai trò bộ máy điều phối luồng chơi: trích xuất bộ từ khóa ngẫu nhiên từ CSDL (tối thiểu 3 × số người chơi), quản lý bộ đếm thời gian chọn từ (10s), thời gian vẽ (60s) và thời gian đoán (30s/bức tranh), kiểm soát việc nộp tranh tự động khi hết giờ.
 Module Vẽ tranh (Drawing): Cung cấp bộ công cụ vẽ phong phú trên canvas Client (bút vẽ, tẩy, chọn màu, kích thước nét vẽ, xóa tất cả) và đóng gói dữ liệu hình vẽ chuyển về Server.
 Module Đoán đáp án (Guessing): Hiển thị tranh vẽ kèm gợi ý dạng gạch dưới độ dài đáp án. Xử lý nhận đáp án nhập từ người chơi, đối chiếu với đáp án gốc và phản hồi kết quả chính xác ngay lập tức.
-Module Tính điểm (Scoring): Dùng công thức thời gian và tỷ lệ/tốc độ tại mục 4. Thứ tự đoán đúng chỉ phục vụ hiển thị, không quyết định điểm. Kết quả có thể bằng điểm nhau. Server theo dõi tổng thời gian kết nối của từng người trong mỗi lượt để xác định cơ hội đoán hợp lệ.
+Module Tính điểm (Scoring): Người đoán đúng nhận điểm theo thứ tự Server xử lý và số người có quyền đoán lúc bắt đầu tranh; người vẽ nhận điểm theo số người đoán trúng. Server theo dõi tổng thời gian kết nối của từng người trong mỗi lượt để xác định cơ hội đoán hợp lệ khi xét phạt. Xem mục 4.
 Điểm phạt cho người vẽ: Chỉ phạt 20 điểm khi tranh được chiếu hợp lệ, có ít nhất một người đủ điều kiện đoán nhưng không ai đoán đúng; tranh SKIPPED và trường hợp không có người đủ cơ hội đoán không bị phạt.
 Module Kết quả & Xếp hạng (Results & Ranking): Hiển thị bảng tổng kết chi tiết sau trận đấu và quản lý Bảng xếp hạng toàn hệ thống theo điểm tích lũy người chơi.
 2.2. Thiết kế giao diện tổng quan
@@ -89,36 +90,31 @@ Lưu trữ kết quả: Kết quả và điểm số sau mỗi trận đấu h�
 - Nút Rời phòng cần xác nhận; rời trận đang chơi thông báo phạt 20 điểm và xử lý ngay, không tạo thời gian giữ chỗ.
 - Phiên khôi phục/bản nháp được giữ trong bộ nhớ của Server đơn lẻ; không cam kết khôi phục trận sau khi tiến trình Server khởi động lại.
 
-## 4. Luật tính điểm theo thời gian — phiên bản 2
+## 4. Luật tính điểm theo thứ tự — phiên bản 4
 
-Áp dụng cho các trận mới sau khi cập nhật. Giữ phòng 3–8 người, chọn từ 10 giây, thời gian vẽ theo cài đặt hiện có (mặc định 60 giây). Mỗi tranh có **30.000 ms để đoán**, không rút ngắn/kéo dài theo cài đặt thời gian vẽ. Trận có thể kết thúc lượt đoán sớm khi mọi người còn có quyền/cơ hội đoán đều đã đúng, nhưng công thức luôn dùng T = 30.000 ms.
+Áp dụng cho các trận mới sau khi cập nhật. Giữ phòng 3–8 người, chọn từ 10 giây, thời gian vẽ theo cài đặt hiện có (mặc định 60 giây). Mỗi tranh có **30.000 ms để đoán**, không rút ngắn/kéo dài theo cài đặt thời gian vẽ. Lượt đoán có thể kết thúc sớm khi mọi người còn quyền/cơ hội đoán đều đã đúng.
 
 ### 4.1. Điểm người đoán
 
-`Điểm đoán = round(20 + 80 × (T − t) / T)`, với `T = 30000` và `t` là số mili giây từ lúc Server bắt đầu chiếu tranh đến khi Server chấp nhận đáp án đúng đầu tiên của người chơi.
+`Điểm đoán = round(100 × (n − r + 1) / n)`, với `n` là số người có quyền đoán khi tranh bắt đầu (số thành viên của lượt trừ người vẽ), `r` là thứ tự đáp án đúng đầu tiên được Server chấp nhận (`1 ≤ r ≤ n`). Làm tròn gần nhất, phần lẻ 0,5 làm tròn lên. Chốt `n` khi bắt đầu chiếu tranh; người mất kết nối hoặc rời phòng trong lượt không làm đổi điểm của những người còn lại.
 
 - Chỉ chấp nhận khi `0 ≤ t < 30000`. Đáp án đến đúng hạn cuối hoặc muộn hơn bị từ chối, nhận 0 điểm.
-- Điểm đúng hợp lệ trong khoảng 20–100. Dùng làm tròn gần nhất; phần lẻ đúng 0,5 làm tròn lên. Không làm tròn thời gian về giây trước khi tính.
+- Phòng tối đa 8 người nên một tranh có tối đa 7 người có quyền đoán. Người đúng thứ nhất luôn nhận 100 điểm; người đúng cuối cùng nhận `round(100/n)` điểm nếu tất cả `n` người đều đúng. Thời gian đoán không làm thay đổi điểm khi đáp án còn trong hạn.
 - Sai hoặc không có đáp án đúng trước hạn: 0 điểm; đoán sai không bị trừ điểm và vẫn được thử lại.
 - Mỗi người chỉ được cộng điểm một lần cho mỗi mã tranh trong một trận. Gửi trùng đáp án đúng không cộng thêm.
 - Người vẽ không được đoán tranh của mình. Socket cũ, người hết tư cách thành viên hoặc kết nối không hợp lệ không được tính điểm.
-- Server kiểm soát mốc bắt đầu và mốc chấp nhận bằng đồng hồ đơn điệu; bỏ qua thời gian do Client gửi. Thứ hạng/thứ tự không ảnh hưởng điểm; hai người có thể nhận điểm bằng nhau.
+- Server kiểm soát hạn 30 giây bằng thời gian Server và xử lý đáp án theo thứ tự tuần tự. Nếu hai đáp án đến gần như cùng lúc, thứ tự Server chấp nhận quyết định điểm; bỏ qua thời gian do Client gửi.
 
-| Thời gian đúng | Điểm |
-|---|---:|
-| 0 giây | 100 |
-| 2 giây | 95 |
-| 3 giây | 92 |
-| 5 giây | 87 |
-| 10 giây | 73 |
-| 15 giây | 60 |
-| 20 giây | 47 |
-| 25 giây | 33 |
-| 29 giây | 23 |
-| 29.999 ms | 20 |
-| Sai, không đúng, hoặc t ≥ 30.000 ms | 0 |
+| Số người trong phòng lúc bắt đầu tranh | Điểm theo thứ tự đúng |
+|---|---|
+| 3 (2 người đoán) | 100, 50 |
+| 4 (3 người đoán) | 100, 67, 33 |
+| 5 (4 người đoán) | 100, 75, 50, 25 |
+| 6 (5 người đoán) | 100, 80, 60, 40, 20 |
+| 7 (6 người đoán) | 100, 83, 67, 50, 33, 17 |
+| 8 (7 người đoán) | 100, 86, 71, 57, 43, 29, 14 |
 
-Ví dụ: người đầu tiên đúng ở giây 20 nhận 47 điểm; người tiếp theo đúng ở giây 21 nhận 44 điểm. Không tự động cho người đầu tiên 100 điểm.
+Ví dụ: phòng 4 người có 3 người đoán. Người đầu tiên đúng ở giây 20 nhận 100 điểm; người tiếp theo đúng ở giây 21 nhận 67 điểm. Nếu cả hai đúng ở cùng mili giây, thứ tự Server xử lý vẫn quyết định ai nhận 100 và 67. Người đoán sai, không đúng hoặc đến đúng hạn 30.000 ms trở đi nhận 0 điểm.
 
 ### 4.2. Ai được tính vào số người đoán đủ điều kiện?
 
@@ -132,25 +128,25 @@ Với từng bức tranh, Server lập danh sách ứng viên là các thành vi
 
 ### 4.3. Điểm người vẽ
 
-`Điểm vẽ = round(70 × k/m + 30 × S/(100 × m))`
+`Điểm vẽ = round(100 × k / m)` khi có ít nhất một người đoán đúng và ít nhất một người đủ điều kiện đoán. Làm tròn gần nhất, phần lẻ 0,5 làm tròn lên.
 
-Trong đó `m` là số người đoán đủ điều kiện tại lúc chốt lượt (không bao gồm tác giả), `k` là số người đoán đúng và `S` là tổng điểm đoán theo thời gian của các người đúng.
+Trong đó `k` là số người đoán đúng. `m` là số người đoán đủ điều kiện tại lúc chốt lượt (không bao gồm tác giả), xác định theo mục 4.2. Người đã đúng vẫn được tính vào `m` khi mất kết nối hoặc rời sau đó.
 
 - `m = 0`: 0 điểm, không phạt vì không ai có cơ hội hợp lệ.
 - `m > 0, k = 0`: −20 điểm.
-- `m > 0, k > 0`: tính theo công thức, làm tròn gần nhất, kết quả trong 0–100.
+- `m > 0, k > 0`: tính theo tỷ lệ đúng; nếu tất cả `m` người đều đúng thì người vẽ nhận 100 điểm. Thứ tự và tốc độ của họ không làm thay đổi điểm người vẽ.
 - Chỉ chốt và cộng điểm vẽ **một lần**, khi lượt đoán kết thúc. Không tính lại khi nhận thông điệp trùng hoặc reconnect.
 
 Ví dụ với bốn người đủ điều kiện:
 
-| Kết quả | Điểm người đúng | Điểm vẽ |
-|---|---|---:|
-| 4/4 đúng | 60, 60, 60, 60 | 88 |
-| 3/4 đúng | 100, 60, 20 | 66 |
-| 2/4 đúng | 60, 60 | 44 |
-| 1/4 đúng | 60 | 22 |
-| 0/4 đúng | Không có | −20 |
-| Không có người đủ điều kiện | Không có | 0 |
+| Kết quả | Điểm vẽ |
+|---|---:|
+| 4/4 đúng | 100 |
+| 3/4 đúng | 75 |
+| 2/4 đúng | 50 |
+| 1/4 đúng | 25 |
+| 0/4 đúng | −20 |
+| Không có người đủ điều kiện | 0 |
 
 ### 4.4. Tranh bị bỏ qua, reconnect và tổng điểm
 
@@ -161,6 +157,6 @@ Ví dụ với bốn người đủ điều kiện:
 
 ### 4.5. Lịch sử và dữ liệu
 
-Trận cũ được đánh dấu `scoring_version = 1`, trận mới dùng `scoring_version = 2`. Không xóa lịch sử, không tính lại điểm cũ và không đặt lại điểm xếp hạng. Cột `points_adjustment` lưu riêng thưởng/phạt của kết quả mới, mặc định 0 cho dữ liệu cũ. Việc cộng điểm trùng được ngăn ở Server theo mã tranh, người chơi và vòng đời trận; trạng thái trận đang chạy vẫn chỉ nằm trong bộ nhớ như cơ chế reconnect hiện có.
+Trận cũ giữ nguyên `scoring_version = 1`, `2` hoặc `3`; trận mới dùng `scoring_version = 4`. Không xóa lịch sử, không tính lại điểm cũ và không đặt lại điểm xếp hạng. Cột `points_adjustment` lưu riêng thưởng/phạt của kết quả mới, mặc định 0 cho dữ liệu cũ. Việc cộng điểm trùng được ngăn ở Server theo mã tranh, người chơi và vòng đời trận; trạng thái trận đang chạy vẫn chỉ nằm trong bộ nhớ như cơ chế reconnect hiện có.
 
 

@@ -2,7 +2,7 @@
 
 Dự án được xây dựng theo kiến trúc Client-Server hiện đại trên nền tảng **Java 21** với mô hình Multi-Module Maven:
 - **`common`**: Chứa DTO, giao thức thông điệp Envelope và MessageType dùng chung.
-- **`server`**: Backend Spring Boot 3.3, Spring WebSocket, Spring Data JPA / Hibernate (Hỗ trợ cả H2 Database nhúng tự động và MySQL).
+- **`server`**: Backend Spring Boot 3.3, Spring WebSocket, Spring Data JPA / Hibernate, MySQL local.
 - **`fx-client`**: Desktop Frontend JavaFX 21 phong cách nét vẽ tay Sketch (Doodle nghệ thuật), tương tác thời gian thực qua WebSocket.
 
 ---
@@ -14,8 +14,8 @@ Dự án được xây dựng theo kiến trúc Client-Server hiện đại trê
 2. **Apache Maven**: Phiên bản **3.8+**.
    - Kiểm tra bằng lệnh: `mvn -v`
 
-> [!TIP]
-> **Không bắt buộc cài đặt MySQL!** Hệ thống đã tích hợp sẵn cơ sở dữ liệu nhúng **H2 Database** lưu trữ bền vững tại thư mục `./data/game_db.mv.db`. Bạn có thể khởi chạy và trải nghiệm ngay lập tức.
+> [!IMPORTANT]
+> Cần cài và chạy MySQL local. Database mặc định là `scribble_game` trên `localhost:3306`.
 
 ---
 
@@ -28,7 +28,7 @@ Mở một **Terminal / PowerShell** tại thư mục gốc dự án (`BTL LTM`)
 mvn -B -DskipTests install
 mvn -pl server spring-boot:run
 ```
-Chạy `install` lại sau mỗi lần cập nhật mã nguồn ở module `common` để server và client dùng cùng bản giao thức, sau đó đóng các tiến trình cũ rồi mở lại. Hệ thống sẽ khởi động H2 và lắng nghe WebSocket tại cổng 8080.
+Chạy `install` lại sau mỗi lần cập nhật mã nguồn ở module `common` để server và client dùng cùng bản giao thức, sau đó đóng các tiến trình cũ rồi mở lại. Hệ thống sẽ kết nối MySQL `scribble_game` và lắng nghe WebSocket tại cổng 8080. Tài khoản mặc định là `root`; đặt `DB_PASSWORD` qua biến môi trường trước khi chạy Maven. Với script khởi động, có thể ghi mật khẩu vào file `.env` local (không đẩy lên Git).
 
 ---
 
@@ -39,16 +39,20 @@ Chạy `install` lại sau mỗi lần cập nhật mã nguồn ở module `comm
 
 ---
 
-### Cách 3: Sử dụng MySQL (Tùy chọn nâng cao)
-Nếu bạn muốn sử dụng MySQL Server cục bộ (XAMPP / Docker / MySQL Workbench):
+### Cách 3: Chuẩn bị MySQL local
+Nếu bạn dùng MySQL Server cục bộ (XAMPP / Docker / MySQL Workbench):
 1. Tạo Database:
    ```sql
    CREATE DATABASE IF NOT EXISTS scribble_game CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
    ```
-2. Cấu hình mật khẩu MySQL của máy bạn tại file `server/src/main/resources/application-mysql.properties`.
-3. Chạy Server với profile `mysql`:
+2. Đặt thông tin đăng nhập trong PowerShell:
+   ```powershell
+   $env:DB_USER='root'
+   $env:DB_PASSWORD='mat_khau_mysql'
+   ```
+3. Chạy Server với cấu hình mặc định:
    ```bash
-   mvn -pl server spring-boot:run "-Dspring-boot.run.profiles=mysql"
+   mvn -pl server spring-boot:run
    ```
 
 ---
@@ -92,7 +96,7 @@ Luật chơi hỗ trợ từ **3 đến 8 người chơi** trong cùng một ph�
 
 Khi mời bạn bè vào phòng, mỗi lần gửi thành công phải đợi 15 giây mới mời lại cùng người đó. Nút mời hiển thị thời gian chờ; người đã vào phòng sẽ không còn được mời.
 
-Các trận mới dùng điểm theo thời gian (phiên bản 2): đúng ở giây 2 nhận 95 điểm, giây 15 nhận 60, giây 20 nhận 47. Thứ tự đoán không quyết định điểm. Lượt đoán luôn 30 giây; điểm người vẽ phụ thuộc tỷ lệ đúng và tốc độ, chỉ tính người đã đúng hoặc có tổng thời gian kết nối ít nhất 10 giây trong lượt. Xem mục 4 trong file luật để biết toàn bộ công thức, ví dụ và các trường hợp không bị phạt. Lịch sử cũ và điểm tích lũy được giữ nguyên.
+Các trận mới dùng điểm theo thứ tự đoán đúng (phiên bản 4), chia theo số người có quyền đoán khi tranh bắt đầu: phòng 3 người là 100/50 điểm, phòng 4 người là 100/67/33 điểm. Điểm người vẽ bằng tỷ lệ người đoán đúng trên số người đủ điều kiện đoán, tối đa 100 điểm khi tất cả đúng. Lượt đoán vẫn luôn 30 giây; người không đúng cần có tổng thời gian kết nối ít nhất 10 giây trong lượt mới tính vào mẫu số. Xem mục 4 trong file luật để biết bảng điểm phòng 3–8 người và ngoại lệ. Lịch sử cũ và điểm tích lũy được giữ nguyên.
 
 Nếu mất mạng, client tự kết nối lại và hiển thị thời gian giữ chỗ ước tính. Server giữ vị trí trong **30 giây từ lúc xác nhận mất kết nối**; trận vẫn chạy. Trở lại đúng hạn sẽ khôi phục pha hiện tại và bản nháp riêng. Hết hạn sẽ bị loại khỏi phòng, chỉ được tự vào lại khi phòng ở WAITING và còn chỗ. Trận đang diễn ra tiếp tục với ít nhất 2 thành viên hợp lệ. Xem mục 3 trong file luật để biết quy tắc tranh bị bỏ qua và điểm phạt.
 
@@ -130,7 +134,9 @@ Kết quả đạt chuẩn: **5 / 5 Suites PASS (100%)**.
 ### Quản trị và công cụ vẽ
 
 - Đăng nhập bằng tài khoản `admin`, chọn **Quản trị** tại sảnh. Các tab hiển thị số tài khoản, người trực tuyến, phòng đang mở, trận và tranh đã lưu; danh sách người chơi; phòng chơi; từ khóa tự thêm.
-- Có thể thêm hoặc xóa từ khóa. Dữ liệu được lưu trong bảng `custom_topics` và được dùng từ trận tiếp theo. Có thể giải tán phòng theo mã phòng.
+- Có thể thêm, sửa hoặc xóa từ khóa. Toàn bộ từ khóa đang dùng được lưu trong bảng `topic_entries`, được nối với tranh qua `paintings.topic_entry_id` và dùng từ trận tiếp theo. Có thể giải tán phòng theo mã phòng.
+- Trước lần đầu chạy bản mới với MySQL `scribble_game` cũ, hãy dừng backend và sao lưu bằng `mysqldump`. Lần chạy đầu sẽ thêm bảng/cột và nhập từ khóa cũ; không cần xóa hai bảng từ khóa cũ.
+- Ở **Trang cá nhân → Lịch sử**, chọn trận rồi bấm **Xem các vòng và tranh đã vẽ**. Chọn một lượt để xem từ khóa, tranh và chi tiết lượt đoán; bấm **Phát lại nét vẽ** để xem tranh được dựng lại. Tranh trước bản nâng cấp vẫn xem được nhưng không xác định được số vòng/lượt và chi tiết lượt đoán.
 - Trong pha vẽ ở client JavaFX, nút **Tẩy** chuyển sang nét trắng với đầu tẩy lớn hơn. Bấm **Bút vẽ** để quay lại. Nút **Xóa bảng** vẫn xóa toàn bộ tranh.
 - Kiểm thử server, gồm ba client chơi một trận và kiểm tra quyền admin: chạy `mvn test` tại thư mục gốc.
 

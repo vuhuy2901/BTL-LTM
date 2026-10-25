@@ -1,5 +1,7 @@
 # Bàn giao: hệ thống tính điểm theo thời gian, phiên bản 2
 
+Tài liệu này ghi lại triển khai phiên bản 2 để đối chiếu lịch sử. Trận mới hiện dùng luật phiên bản 4 theo thứ tự đoán đúng và tỷ lệ người đoán đúng; xem mục 4 `game_rules_nhom8.md`.
+
 ## Kết quả
 
 Đã thay công thức điểm theo thứ hạng bằng điểm theo thời gian do Server kiểm soát, tích hợp vào trận đấu, reconnect, bảng điểm trực tiếp, kết quả cuối trận và lịch sử. Server đã được build lại và khởi động với bản mới tại `ws://localhost:8080/ws/game`.

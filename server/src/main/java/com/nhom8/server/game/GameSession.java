@@ -24,7 +24,7 @@ import com.nhom8.server.ws.ClientSession;
  * 3. Đoán tranh (30 giây/bức): Chiếu tuần tự từng bức, cả phòng đoán
  * 4. Tổng kết: Tính điểm, lưu kết quả, cập nhật bảng xếp hạng
  * 
- * Điểm đoán phụ thuộc thời gian máy chủ; điểm vẽ kết hợp tỷ lệ đúng và tốc độ đoán.
+ * Điểm đoán phụ thuộc thứ tự đúng và số người có quyền đoán; điểm vẽ theo số người đoán đúng.
  */
 public class GameSession {
 
@@ -432,6 +432,11 @@ public class GameSession {
                         User painter = getGameService().getUserRepository().findByUsername(username);
                         if (painter != null && topic != null && match != null) {
                             Painting painting = new Painting(match, painter, topic);
+                            if (getGameService().getTopicCatalog() != null) {
+                                painting.setTopicEntry(getGameService().getTopicCatalog().findOrCreateHistoryWord(topic));
+                            }
+                            painting.setRoundNumber(currentRound);
+                            painting.setTurnNumber(playerOrder.indexOf(username) + 1);
                             painting.setStrokeData(JsonUtil.toJson(submittedDrawings.getOrDefault(username, new ArrayList<>())));
                             getGameService().getPaintingRepository().save(painting);
                         }
@@ -497,6 +502,11 @@ public class GameSession {
             User painter = getGameService().getUserRepository().findByUsername(username);
             if (painter != null && topic != null && match != null) {
                 Painting painting = new Painting(match, painter, topic);
+                if (getGameService().getTopicCatalog() != null) {
+                    painting.setTopicEntry(getGameService().getTopicCatalog().findOrCreateHistoryWord(topic));
+                }
+                painting.setRoundNumber(currentRound);
+                painting.setTurnNumber(playerOrder.indexOf(username) + 1);
                 painting.setStrokeData(JsonUtil.toJson(submittedDrawings.getOrDefault(username, new ArrayList<>())));
                 getGameService().getPaintingRepository().save(painting);
             }
@@ -644,7 +654,7 @@ public class GameSession {
                     || !playerOrder.contains(username) || currentPaintingIndex < 0 || currentPaintingIndex >= paintingOrder.size()) return;
             ClientSession connectedPlayer = room.getPlayer(username);
             if (connectedPlayer == null || !connectedPlayer.isConnected() || guessingWindow == null
-                    || ScoringService.calculateGuessScore(guessStartedAtMillis, acceptedAtMillis, ScoringService.GUESS_DURATION_MS) == 0) return;
+                    || !ScoringService.isWithinGuessWindow(guessStartedAtMillis, acceptedAtMillis, ScoringService.GUESS_DURATION_MS)) return;
             painterUsername = paintingOrder.get(currentPaintingIndex);
 
             // Người vẽ không được đoán tranh của mình
@@ -666,12 +676,12 @@ public class GameSession {
             result = new GuessResult(seqId, username, guess, isCorrect, elapsedNanos);
 
             if (isCorrect) {
-                earnedPoints = guessingWindow.awardCorrect(username, acceptedAtMillis);
+                currentRank = correctGuessers.size() + 1;
+                earnedPoints = guessingWindow.awardCorrect(username, acceptedAtMillis, currentRank);
                 if (earnedPoints == 0) return;
                 // Ghi nhận đoán đúng — rank được gán trong synchronized block
                 // → đảm bảo KHÔNG BAO GIỜ 2 người có cùng rank
                 correctGuessers.add(username);
-                currentRank = correctGuessers.size();
                 result.rank = currentRank;
 
                 // === TÍNH ĐIỂM NGAY LẬP TỨC (không chờ hết lượt) ===
@@ -833,7 +843,7 @@ public class GameSession {
         // (không cần tính lại ở đây — khác với phiên bản batch cũ)
 
         // === Tính điểm người vẽ ===
-        int painterPoints = ScoringService.calculateDrawingScore(totalGuessers, correctScores);
+        int painterPoints = ScoringService.calculateDrawingScore(totalGuessers, correctCount);
         MatchResult painterResult = matchResults.get(painterUsername);
         if (painterResult != null) {
             painterResult.addDrawnPoints(painterPoints);
@@ -903,6 +913,20 @@ public class GameSession {
         roundResult.put("guessDetails", guessDetailsList);
         roundResult.put("guessFullLog", guessFullLog);
         roundResult.put("totalGuesses", guessFullLog.size());
+
+        try {
+            getGameService().getPaintingRepository()
+                    .findForMatch(match.getMatchId())
+                    .stream().filter(p -> java.util.Objects.equals(p.getRoundNumber(), currentRound)
+                            && p.getPainter().getUsername().equals(painterUsername))
+                    .findFirst().ifPresent(p -> {
+                        p.setTurnNumber(currentPaintingIndex + 1);
+                        p.setResultData(roundResult.toJson());
+                        getGameService().getPaintingRepository().save(p);
+                    });
+        } catch (Exception e) {
+            System.err.println("[GameSession] Lỗi lưu kết quả lượt vẽ: " + e.getMessage());
+        }
 
         room.broadcast(roundResult);
         latestRoundResult = roundResult;

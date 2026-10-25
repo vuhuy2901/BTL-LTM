@@ -6,59 +6,103 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.sound.sampled.FloatControl;
 import java.io.ByteArrayInputStream;
-import java.util.Random;
+import java.net.URL;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Hiệu ứng âm thanh tiếng nét bút vẽ sột soạt trên giấy (và tiếng gôm tẩy).
- * Âm thanh được tự động tổng hợp PCM dạng hạt ma sát (granular friction),
- * không phụ thuộc tệp tài nguyên bên ngoài.
+ * Quản lý hiệu ứng âm thanh nét bút vẽ (pencil) và gôm tẩy (eraser) trên bảng vẽ.
+ * Sử dụng tệp âm thanh chân thực từ tài nguyên mẫu chuẩn (CC0 1.0) kết hợp cơ chế
+ * phát mượt mà (seamless loop khi rê chuột, tự ngắt êm ái khi dừng rê hoặc nhả chuột),
+ * đảm bảo âm thanh êm dịu, không giật cục, không ồn ào.
  */
 public final class PencilSound {
     private static final float SAMPLE_RATE = 22_050f;
-    private static final int VARIATIONS = 3;
-    private static Clip[] pencilClips;
+    private static volatile boolean initialized;
+    private static Clip pencilClip;
     private static Clip eraserClip;
-    private static boolean initialized;
-    private static int nextClipIndex = 0;
-    private static long lastDrawTime = 0;
+    private static volatile Clip currentPlayingClip;
+    private static volatile long lastDrawTime = 0;
+    private static volatile long pressTime = 0;
+    private static volatile boolean active = false;
+    private static ScheduledExecutorService watchdog;
 
     private PencilSound() { }
 
     /**
-     * Phát âm thanh sột soạt khi vẽ hoặc tẩy trên canvas.
-     * Tự động điều tiết tần suất (throttle) khoảng 75ms/lần để nét vẽ mượt mà tự nhiên.
+     * Bắt đầu hoặc duy trì âm thanh sột soạt tự nhiên khi người chơi rê chuột vẽ/tẩy trên canvas.
+     * Âm lượng được điều chỉnh êm dịu, không lặp giật tiếng.
      */
     public static void playDraw(boolean isEraser) {
-        if (!GameSound.isEnabled()) return;
-        long now = System.currentTimeMillis();
-        if (now - lastDrawTime < 75) {
+        if (!GameSound.isEnabled()) {
+            stopDraw();
             return;
         }
+
+        long now = System.currentTimeMillis();
+        if (!active) {
+            pressTime = now;
+        }
         lastDrawTime = now;
+        active = true;
 
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-            try {
-                if (!GameSound.isEnabled()) return;
-                if (!initialized) initialize();
-                Clip clip;
-                if (isEraser) {
-                    clip = eraserClip;
-                } else if (pencilClips != null && pencilClips.length > 0) {
-                    clip = pencilClips[nextClipIndex % pencilClips.length];
-                    nextClipIndex++;
-                } else {
-                    clip = null;
-                }
+        if (!initialized) {
+            initialize();
+        }
 
-                if (clip != null) {
-                    if (clip.isRunning()) clip.stop();
-                    clip.setFramePosition(0);
-                    clip.start();
-                }
-            } catch (Throwable ignored) {
-                // Đảm bảo không bao giờ ảnh hưởng đến thao tác vẽ tranh
+        Clip targetClip = isEraser ? eraserClip : pencilClip;
+        if (targetClip == null) return;
+
+        Clip current = currentPlayingClip;
+        if (current != targetClip) {
+            if (current != null && current.isRunning()) {
+                current.stop();
+                current.setFramePosition(0);
             }
-        });
+            currentPlayingClip = targetClip;
+            try {
+                targetClip.setLoopPoints(0, -1);
+                targetClip.loop(Clip.LOOP_CONTINUOUSLY);
+            } catch (Throwable ignored) {
+            }
+        } else if (!targetClip.isRunning()) {
+            try {
+                targetClip.setLoopPoints(0, -1);
+                targetClip.loop(Clip.LOOP_CONTINUOUSLY);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+     * Dừng âm thanh vẽ khi người chơi nhả chuột, chuột rời canvas hoặc kết thúc lượt vẽ.
+     */
+    public static void stopDraw() {
+        active = false;
+        long now = System.currentTimeMillis();
+        long elapsedSincePress = now - pressTime;
+
+        // Nếu là thao tác chấm điểm cực nhanh (< 80ms), để phát đủ 80ms rồi tự dừng
+        if (elapsedSincePress < 80 && pressTime > 0) {
+            return;
+        }
+
+        stopCurrentClipImmediate();
+    }
+
+    private static synchronized void stopCurrentClipImmediate() {
+        Clip clip = currentPlayingClip;
+        if (clip != null) {
+            try {
+                if (clip.isRunning()) {
+                    clip.stop();
+                }
+                clip.setFramePosition(0);
+            } catch (Throwable ignored) {
+            }
+            currentPlayingClip = null;
+        }
     }
 
     private static synchronized void initialize() {
@@ -66,66 +110,116 @@ public final class PencilSound {
         initialized = true;
 
         try {
-            pencilClips = new Clip[VARIATIONS];
-            Random rnd = new Random(42);
+            pencilClip = loadClip("/sounds/pencil_draw.wav", -6.0f);
+            if (pencilClip == null) {
+                pencilClip = generateSoftPencilClip();
+            }
 
-            // Sinh 3 biến thể tiếng bút chì cọ xát trên giấy ráp (~65ms)
-            for (int v = 0; v < VARIATIONS; v++) {
-                int frames = (int) (SAMPLE_RATE * 0.065);
-                byte[] pcm = new byte[frames * 2];
-                double filter = 0.0;
-                double centerFreq = 2200.0 + (v * 350.0);
+            eraserClip = loadClip("/sounds/eraser_draw.wav", -5.0f);
+            if (eraserClip == null) {
+                eraserClip = generateSoftEraserClip();
+            }
 
-                for (int i = 0; i < frames; i++) {
-                    double progress = (double) i / frames;
-                    // Envelope: Attack nhanh, Decay tự nhiên
-                    double env = progress < 0.15 ? (progress / 0.15) : Math.pow(1.0 - progress, 1.8);
-                    double white = rnd.nextDouble() * 2.0 - 1.0;
-                    // Bộ lọc High-pass lọc bớt tần số thấp, giữ lại tiếng ráp của ngòi bút
-                    filter = 0.65 * filter + 0.35 * white;
-                    double highPass = white - filter;
-                    // Thêm một chút dao động cộng hưởng giấy
-                    double tone = Math.sin(2.0 * Math.PI * centerFreq * i / SAMPLE_RATE) * 0.12;
-                    double sample = (highPass * 0.88 + tone) * env * 0.55;
-                    short val = (short) (Math.max(-1.0, Math.min(1.0, sample)) * Short.MAX_VALUE);
-                    pcm[i * 2] = (byte) (val & 0xff);
-                    pcm[i * 2 + 1] = (byte) ((val >>> 8) & 0xff);
+            watchdog = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "PencilSound-Watchdog");
+                t.setDaemon(true);
+                return t;
+            });
+
+            // Tự động dừng âm thanh sau 130ms nếu không còn thao tác rê chuột vẽ
+            watchdog.scheduleWithFixedDelay(() -> {
+                try {
+                    if (active) {
+                        long now = System.currentTimeMillis();
+                        if (now - lastDrawTime > 130) {
+                            active = false;
+                            stopCurrentClipImmediate();
+                        }
+                    } else if (currentPlayingClip != null) {
+                        long now = System.currentTimeMillis();
+                        if (now - pressTime >= 80) {
+                            stopCurrentClipImmediate();
+                        }
+                    }
+                } catch (Throwable ignored) {
                 }
-
-                pencilClips[v] = createClip(pcm, frames);
-            }
-
-            // Sinh 1 tiếng gôm tẩy cao su cọ xát bề mặt giấy (~90ms, trầm và êm hơn)
-            int eraserFrames = (int) (SAMPLE_RATE * 0.090);
-            byte[] eraserPcm = new byte[eraserFrames * 2];
-            double eraserFilter = 0.0;
-            for (int i = 0; i < eraserFrames; i++) {
-                double progress = (double) i / eraserFrames;
-                double env = progress < 0.2 ? (progress / 0.2) : Math.pow(1.0 - progress, 2.2);
-                double white = rnd.nextDouble() * 2.0 - 1.0;
-                eraserFilter = 0.85 * eraserFilter + 0.15 * white;
-                double sample = eraserFilter * env * 0.50;
-                short val = (short) (Math.max(-1.0, Math.min(1.0, sample)) * Short.MAX_VALUE);
-                eraserPcm[i * 2] = (byte) (val & 0xff);
-                eraserPcm[i * 2 + 1] = (byte) ((val >>> 8) & 0xff);
-            }
-            eraserClip = createClip(eraserPcm, eraserFrames);
+            }, 40, 40, TimeUnit.MILLISECONDS);
 
         } catch (Throwable ignored) {
         }
     }
 
-    private static Clip createClip(byte[] pcm, int frames) throws Exception {
-        AudioFormat format = new AudioFormat(SAMPLE_RATE, 16, 1, true, false);
-        try (AudioInputStream input = new AudioInputStream(
-                new ByteArrayInputStream(pcm), format, frames)) {
-            Clip clip = AudioSystem.getClip();
-            clip.open(input);
-            if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
-                FloatControl gain = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-                gain.setValue(Math.min(0.0f, gain.getMaximum()));
+    private static Clip loadClip(String resourcePath, float gainDb) {
+        try {
+            URL url = PencilSound.class.getResource(resourcePath);
+            if (url == null) return null;
+            try (AudioInputStream ais = AudioSystem.getAudioInputStream(url)) {
+                Clip clip = AudioSystem.getClip();
+                clip.open(ais);
+                if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
+                    FloatControl gain = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
+                    float target = Math.min(gain.getMaximum(), Math.max(gain.getMinimum(), gainDb));
+                    gain.setValue(target);
+                }
+                return clip;
             }
-            return clip;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /**
+     * Bộ dự phòng sinh âm thanh êm dịu nếu không tìm thấy tệp WAV tài nguyên.
+     */
+    private static Clip generateSoftPencilClip() {
+        try {
+            int frames = (int) (SAMPLE_RATE * 0.50);
+            byte[] pcm = new byte[frames * 2];
+            double filter = 0.0;
+            java.util.Random rnd = new java.util.Random(42);
+            for (int i = 0; i < frames; i++) {
+                double white = rnd.nextDouble() * 2.0 - 1.0;
+                filter += 0.15 * (white - filter);
+                double pulse = 0.85 + 0.15 * Math.sin(2.0 * Math.PI * 18 * i / SAMPLE_RATE);
+                double sample = filter * pulse * 0.08;
+                short val = (short) (sample * Short.MAX_VALUE);
+                pcm[i * 2] = (byte) (val & 0xff);
+                pcm[i * 2 + 1] = (byte) ((val >>> 8) & 0xff);
+            }
+            AudioFormat format = new AudioFormat(SAMPLE_RATE, 16, 1, true, false);
+            try (AudioInputStream input = new AudioInputStream(new ByteArrayInputStream(pcm), format, frames)) {
+                Clip clip = AudioSystem.getClip();
+                clip.open(input);
+                return clip;
+            }
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Clip generateSoftEraserClip() {
+        try {
+            int frames = (int) (SAMPLE_RATE * 0.50);
+            byte[] pcm = new byte[frames * 2];
+            double filter = 0.0;
+            java.util.Random rnd = new java.util.Random(1337);
+            for (int i = 0; i < frames; i++) {
+                double white = rnd.nextDouble() * 2.0 - 1.0;
+                filter += 0.25 * (white - filter);
+                double pulse = 0.80 + 0.20 * Math.sin(2.0 * Math.PI * 12 * i / SAMPLE_RATE);
+                double sample = filter * pulse * 0.07;
+                short val = (short) (sample * Short.MAX_VALUE);
+                pcm[i * 2] = (byte) (val & 0xff);
+                pcm[i * 2 + 1] = (byte) ((val >>> 8) & 0xff);
+            }
+            AudioFormat format = new AudioFormat(SAMPLE_RATE, 16, 1, true, false);
+            try (AudioInputStream input = new AudioInputStream(new ByteArrayInputStream(pcm), format, frames)) {
+                Clip clip = AudioSystem.getClip();
+                clip.open(input);
+                return clip;
+            }
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 }

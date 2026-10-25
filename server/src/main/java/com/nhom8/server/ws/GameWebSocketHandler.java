@@ -234,6 +234,12 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             case MATCH_HISTORY_REQUEST:
                 gameService.handleMatchHistory(handler, envelope);
                 break;
+            case MATCH_DETAIL_REQUEST:
+                gameService.handleMatchDetail(handler, envelope);
+                break;
+            case PAINTING_REPLAY_REQUEST:
+                gameService.handlePaintingReplay(handler, envelope);
+                break;
             case ADMIN_GET_USERS:
                 gameService.handleAdminGetUsers(handler, envelope);
                 break;

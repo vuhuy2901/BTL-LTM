@@ -33,11 +33,11 @@ class ScoringPersistenceTest {
         User user = users.saveAndFlush(new User("new_score", "password", "New Score"));
         Match match = matches.saveAndFlush(new Match("new-room"));
         MatchResult result = new MatchResult(match,user);
-        result.addDrawnPoints(-20); result.addGuessPoints(47); result.addAdjustmentPoints(20);
+        result.addDrawnPoints(-20); result.addGuessPoints(100); result.addAdjustmentPoints(20);
         results.saveAndFlush(result); entities.clear();
         MatchResult stored = results.findById(result.getResultId()).orElseThrow();
-        assertEquals(2,stored.getMatch().getScoringVersion());
-        assertEquals(-20,stored.getPointsDrawn()); assertEquals(47,stored.getPointsGuess());
-        assertEquals(20,stored.getPointsAdjustment()); assertEquals(27,stored.getGameplayPoints()); assertEquals(47,stored.getTotalPoints());
+        assertEquals(4,stored.getMatch().getScoringVersion());
+        assertEquals(-20,stored.getPointsDrawn()); assertEquals(100,stored.getPointsGuess());
+        assertEquals(20,stored.getPointsAdjustment()); assertEquals(80,stored.getGameplayPoints()); assertEquals(100,stored.getTotalPoints());
     }
 }

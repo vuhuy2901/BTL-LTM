@@ -99,8 +99,8 @@ Quy ước: tên enum `MessageType` ở `common`, server và client dùng chung.
 - Chọn từ khóa: server chọn trước **3 × số người chơi** từ không trùng; mỗi người nhận **3 lựa chọn riêng**, **10 giây** chọn, quá giờ server tự chọn. Một kho từ chung (đồ vật thường ngày, thành ngữ/tục ngữ tiếng Việt).
 - Vẽ: **60 giây**, đồng thời tất cả người chơi. Không viết chữ/số lên tranh. Hết giờ: chỉ tự nộp bản nháp của người đang kết nối; bỏ qua tranh chưa nộp của người đã mất kết nối. Tranh đã được xác nhận nộp vẫn hợp lệ.
 - Đoán: lần lượt từng bức tranh, **30 giây/bức**, gợi ý dạng gạch dưới (`___ ____` cho "con mèo"). Được gửi đáp án **nhiều lần**. Tác giả **không** được đoán tranh của mình. Chỉ có đúng hoặc sai, **không có mức "gần đúng"**.
-- Điểm đoán: `round(20 + 80 × (30000 − t) / 30000)`, `t` theo đồng hồ đơn điệu của Server, đúng trong hạn nhận 20–100. Sai hoặc t ≥ 30000 ms nhận 0. Thứ tự chỉ để hiển thị.
-- Điểm vẽ: `round(70 × k/m + 30 × S/(100 × m))`; `m=0` nhận 0, `m>0,k=0` nhận −20. Chỉ tính người đúng hoặc có ít nhất 10000 ms kết nối cộng dồn. Đoán luôn 30 giây, độc lập thời gian vẽ. Xem mục 4 `game_rules_nhom8.md`.
+- Điểm đoán trận mới: `round(100 × (n − r + 1) / n)` với `n` là số người có quyền đoán khi tranh bắt đầu, `r` là thứ tự đúng; người đầu luôn 100. Chỉ nhận đáp án trong 30000 ms. Sai hoặc trễ hạn nhận 0.
+- Điểm vẽ trận mới: `round(100 × k / m)`, với `k` là số người đúng và `m` là số người đủ điều kiện đoán; `m=0` thì 0, `m>0,k=0` thì −20. Người không đúng cần có ít nhất 10000 ms kết nối cộng dồn mới được tính vào `m`. Xem mục 4 `game_rules_nhom8.md`.
 - Rời phòng: giữ chỗ mất kết nối **30 giây**; chỉ xử lý rời khi hết hạn hoặc người chơi xác nhận rời. Trận đang chơi còn **< 2 người** thì giải tán và hủy kết quả thông thường, giữ điểm phạt/thưởng rời trận. Chủ phòng chỉ chuyển quyền sau khi thực sự rời phòng.
 - Kết thúc: bảng tổng kết (tranh + chủ nhân + ai đoán đúng/sai/timeout), cập nhật điểm tích lũy vào CSDL, bảng xếp hạng toàn hệ thống.
 

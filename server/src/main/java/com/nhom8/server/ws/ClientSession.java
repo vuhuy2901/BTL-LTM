@@ -42,7 +42,7 @@ public class ClientSession {
     public void ping() throws java.io.IOException { session.sendMessage(new org.springframework.web.socket.PingMessage()); }
 
     public ClientSession(WebSocketSession session) {
-        this.session = new ConcurrentWebSocketSessionDecorator(session, 5000, 1024 * 1024);
+        this.session = new ConcurrentWebSocketSessionDecorator(session, 5000, 10 * 1024 * 1024);
     }
 
     /**

@@ -7,10 +7,7 @@ import com.nhom8.server.game.Room;
 import com.nhom8.server.game.RoomManager;
 import com.nhom8.server.model.Friendship;
 import com.nhom8.server.model.User;
-import com.nhom8.server.model.CustomTopic;
-import com.nhom8.server.model.BuiltInTopicOverride;
-import com.nhom8.server.repository.CustomTopicRepository;
-import com.nhom8.server.repository.BuiltInTopicOverrideRepository;
+import com.nhom8.server.model.TopicEntry;
 import com.nhom8.server.util.TopicPool;
 import com.nhom8.common.message.Envelope;
 import com.nhom8.common.message.MessageType;
@@ -94,36 +91,11 @@ public class GameService {
     }
 
     @org.springframework.beans.factory.annotation.Autowired
-    private CustomTopicRepository customTopicRepository;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    private BuiltInTopicOverrideRepository builtInTopicOverrideRepository;
+    private TopicCatalog topicCatalog;
 
     @jakarta.annotation.PostConstruct
     public void loadCustomTopics() {
-        refreshCustomTopics();
-        refreshBuiltInTopics();
         reconnectScheduler.scheduleAtFixedRate(this::expireDisconnectedSessions, 1, 1, TimeUnit.SECONDS);
-    }
-
-    private void refreshCustomTopics() {
-        TopicPool.setCustomTopics(customTopicRepository.findAll().stream().map(CustomTopic::getWord).toList());
-    }
-
-    private void refreshBuiltInTopics() {
-        Map<String, String> replacements = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        builtInTopicOverrideRepository.findAll().forEach(override ->
-                replacements.put(override.getOriginalWord(), override.getReplacementWord()));
-        List<String> effective = new ArrayList<>();
-        for (String sourceWord : TopicPool.getSourceBuiltInTopics()) {
-            if (!replacements.containsKey(sourceWord)) {
-                effective.add(sourceWord);
-            } else {
-                String replacement = replacements.get(sourceWord);
-                if (replacement != null && !replacement.isBlank()) effective.add(replacement);
-            }
-        }
-        TopicPool.setBuiltInTopics(effective);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -798,7 +770,7 @@ public class GameService {
                 .put("activeRooms", roomManager.getRoomCount())
                 .put("totalMatches", matchRepository.count())
                 .put("totalPaintings", paintingRepository.count())
-                .put("customTopics", customTopicRepository.count());
+                .put("customTopics", topicCatalog.countCustom());
     }
 
     public void broadcastAdminStats() {
@@ -834,9 +806,9 @@ public class GameService {
     }
 
     private void broadcastAdminTopics() {
-        Envelope response = Envelope.success(MessageType.ADMIN_TOPICS, "Từ khóa tự thêm")
-                .put("topics", customTopicRepository.findAll().stream().map(CustomTopic::getWord).sorted().toList())
-                .put("builtInTopics", TopicPool.getBuiltInTopics().stream().sorted().toList());
+        Envelope response = Envelope.success(MessageType.ADMIN_TOPICS, "Danh sách từ khóa")
+                .put("topics", TopicPool.getCustomTopics().stream().sorted().toList())
+                .put("builtInTopics", List.of());
         for (ClientSession session : onlineClients.values()) {
             if (isAdmin(session)) session.sendMessage(response);
         }
@@ -844,26 +816,20 @@ public class GameService {
 
     public void handleAdminTopics(ClientSession handler) {
         if (!requireAdmin(handler, MessageType.ADMIN_TOPICS)) return;
-        handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPICS, "Từ khóa tự thêm")
-                .put("topics", customTopicRepository.findAll().stream().map(CustomTopic::getWord).sorted().toList())
-                .put("builtInTopics", TopicPool.getBuiltInTopics().stream().sorted().toList()));
+        handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPICS, "Danh sách từ khóa")
+                .put("topics", TopicPool.getCustomTopics().stream().sorted().toList())
+                .put("builtInTopics", List.of()));
     }
 
     public void handleAdminTopicAdd(ClientSession handler, Envelope request) {
         if (!requireAdmin(handler, MessageType.ADMIN_TOPIC_ADD)) return;
         String word = request.getString("word");
         word = word == null ? "" : word.trim().replaceAll("\\s+", " ");
-        String normalizedWord = word;
-        boolean duplicateBuiltIn = java.util.stream.Stream.concat(
-                        TopicPool.getBuiltInTopics().stream(), TopicPool.getSourceBuiltInTopics().stream())
-                .anyMatch(topic -> topic.equalsIgnoreCase(normalizedWord));
-        if (word.length() < 2 || word.length() > 100 || duplicateBuiltIn
-                || customTopicRepository.existsByWordIgnoreCase(word)) {
+        if (word.length() < 2 || word.length() > 100 || activeTopicExists(word, null)) {
             handler.sendMessage(Envelope.error(MessageType.ADMIN_TOPIC_ADD, "Từ khóa phải dài 2–100 ký tự và chưa tồn tại."));
             return;
         }
-        customTopicRepository.save(new CustomTopic(word));
-        refreshCustomTopics();
+        topicCatalog.save(new TopicEntry(word, true));
         handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPIC_ADD, "Đã thêm từ khóa: " + word));
         broadcastAdminTopics();
         broadcastAdminStats();
@@ -872,28 +838,18 @@ public class GameService {
     public void handleAdminTopicDelete(ClientSession handler, Envelope request) {
         if (!requireAdmin(handler, MessageType.ADMIN_TOPIC_DELETE)) return;
         String word = request.getString("word");
-        if (request.getBoolean("builtIn", false)) {
-            BuiltInTopicOverride override = findBuiltInOverrideForCurrentWord(word);
-            if (override == null) {
-                handler.sendMessage(Envelope.error(MessageType.ADMIN_TOPIC_DELETE, "Không tìm thấy từ khóa mặc định."));
-                return;
-            }
-            override.setReplacementWord(null);
-            builtInTopicOverrideRepository.save(override);
-            refreshBuiltInTopics();
-            handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPIC_DELETE, "Đã xóa từ khóa mặc định: " + word));
-            broadcastAdminTopics();
-            broadcastAdminStats();
-            return;
-        }
-        CustomTopic topic = customTopicRepository.findAll().stream()
-                .filter(t -> t.getWord().equalsIgnoreCase(word)).findFirst().orElse(null);
+        TopicEntry topic = findActiveTopic(word);
         if (topic == null) {
             handler.sendMessage(Envelope.error(MessageType.ADMIN_TOPIC_DELETE, "Không tìm thấy từ khóa."));
             return;
         }
-        customTopicRepository.delete(topic);
-        refreshCustomTopics();
+        if (TopicPool.getBuiltInTopics().size() + TopicPool.getCustomTopics().size() <= 1) {
+            handler.sendMessage(Envelope.error(MessageType.ADMIN_TOPIC_DELETE, "Cần giữ ít nhất một từ khóa để bắt đầu trận."));
+            return;
+        }
+        // Keep the row for historical paintings that still reference this keyword.
+        topic.setActive(false);
+        topicCatalog.save(topic);
         handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPIC_DELETE, "Đã xóa từ khóa: " + topic.getWord()));
         broadcastAdminTopics();
         broadcastAdminStats();
@@ -908,60 +864,32 @@ public class GameService {
             handler.sendMessage(Envelope.error(MessageType.ADMIN_TOPIC_UPDATE, "Từ khóa phải dài 2–100 ký tự."));
             return;
         }
-        BuiltInTopicOverride override = findBuiltInOverrideForCurrentWord(currentWord);
-        CustomTopic customTopic = override == null
-                ? customTopicRepository.findAll().stream()
-                        .filter(topic -> topic.getWord().equalsIgnoreCase(currentWord))
-                        .findFirst().orElse(null)
-                : null;
-        if (override == null && customTopic == null) {
+        TopicEntry topic = findActiveTopic(currentWord);
+        if (topic == null) {
             handler.sendMessage(Envelope.error(MessageType.ADMIN_TOPIC_UPDATE, "Không tìm thấy từ khóa."));
             return;
         }
-        boolean duplicateBuiltIn = TopicPool.getBuiltInTopics().stream()
-                .anyMatch(topic -> !topic.equalsIgnoreCase(currentWord) && topic.equalsIgnoreCase(replacement));
-        boolean duplicateCustom = customTopicRepository.findAll().stream()
-                .anyMatch(topic -> !topic.getWord().equalsIgnoreCase(currentWord)
-                        && topic.getWord().equalsIgnoreCase(replacement));
-        if (duplicateBuiltIn || duplicateCustom) {
+        if (activeTopicExists(replacement, topic.getId())) {
             handler.sendMessage(Envelope.error(MessageType.ADMIN_TOPIC_UPDATE, "Từ khóa này đã tồn tại."));
             return;
         }
 
-        if (customTopic != null) {
-            String oldWord = customTopic.getWord();
-            if (!replacement.equalsIgnoreCase(oldWord)) {
-                customTopicRepository.delete(customTopic);
-                customTopicRepository.save(new CustomTopic(replacement));
-                refreshCustomTopics();
-            }
-            handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPIC_UPDATE, "Đã sửa từ khóa thành: " + replacement));
-        } else {
-            String originalWord = override.getOriginalWord();
-            if (replacement.equalsIgnoreCase(originalWord)) {
-                builtInTopicOverrideRepository.delete(override);
-                handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPIC_UPDATE, "Đã khôi phục từ khóa mặc định: " + originalWord));
-            } else {
-                override.setReplacementWord(replacement);
-                builtInTopicOverrideRepository.save(override);
-                handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPIC_UPDATE, "Đã sửa từ khóa thành: " + replacement));
-            }
-            refreshBuiltInTopics();
-        }
+        topic.setWord(replacement);
+        topicCatalog.save(topic);
+        handler.sendMessage(Envelope.success(MessageType.ADMIN_TOPIC_UPDATE, "Đã sửa từ khóa thành: " + replacement));
         broadcastAdminTopics();
     }
 
-    private BuiltInTopicOverride findBuiltInOverrideForCurrentWord(String word) {
+    private TopicEntry findActiveTopic(String word) {
         if (word == null) return null;
-        return builtInTopicOverrideRepository.findAll().stream()
-                .filter(override -> word.equalsIgnoreCase(override.getReplacementWord())
-                        || (override.getReplacementWord() == null
-                        && word.equalsIgnoreCase(override.getOriginalWord())))
-                .findFirst()
-                .orElseGet(() -> TopicPool.getSourceBuiltInTopics().stream()
-                        .filter(source -> source.equalsIgnoreCase(word))
-                        .map(source -> new BuiltInTopicOverride(source, source))
-                        .findFirst().orElse(null));
+        return topicCatalog.all().stream()
+                .filter(t -> t.isActive() && t.getWord().equalsIgnoreCase(word)).findFirst().orElse(null);
+    }
+
+    private boolean activeTopicExists(String word, Long exceptId) {
+        return topicCatalog.all().stream().anyMatch(t -> t.isActive()
+                && !java.util.Objects.equals(t.getId(), exceptId)
+                && t.getWord().equalsIgnoreCase(word));
     }
 
     // ========================================================================
@@ -1630,48 +1558,106 @@ public class GameService {
         List<com.nhom8.server.model.MatchResult> results = matchResultRepository.findByUserWithMatchOrderByStartedAtDesc(user);
         List<Map<String, Object>> historyList = new ArrayList<>();
         java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+        java.util.Set<Integer> includedMatchIds = new java.util.HashSet<>();
 
         for (com.nhom8.server.model.MatchResult mr : results) {
-            if (historyList.size() >= 30) break; // Giới hạn 30 trận gần nhất
+            if (mr.getMatch() == null || !includedMatchIds.add(mr.getMatch().getMatchId())) continue;
             Map<String, Object> item = new HashMap<>();
             item.put("resultId", mr.getResultId());
-            if (mr.getMatch() != null) {
-                item.put("matchId", mr.getMatch().getMatchId());
-                item.put("roomId", mr.getMatch().getRoomId());
-                item.put("startedAt", mr.getMatch().getStartedAt() != null ? mr.getMatch().getStartedAt().format(fmt) : "");
-                item.put("endedAt", mr.getMatch().getEndedAt() != null ? mr.getMatch().getEndedAt().format(fmt) : "");
-
-                List<com.nhom8.server.model.MatchResult> allResults = matchResultRepository.findByMatch_MatchId(mr.getMatch().getMatchId());
-                allResults.sort((a, b) -> Integer.compare(b.getTotalPoints(), a.getTotalPoints()));
-                int rank = 1;
-                for (int i = 0; i < allResults.size(); i++) {
-                    if (allResults.get(i).getResultId().equals(mr.getResultId())) {
-                        rank = i + 1;
-                        break;
-                    }
-                }
-                item.put("rank", rank);
-                item.put("totalPlayers", allResults.size());
-            } else {
-                item.put("matchId", 0);
-                item.put("roomId", "—");
-                item.put("startedAt", "");
-                item.put("endedAt", "");
-                item.put("rank", 1);
-                item.put("totalPlayers", 1);
+            com.nhom8.server.model.Match match = mr.getMatch();
+            item.put("matchId", match.getMatchId());
+            item.put("roomId", match.getRoomId());
+            item.put("startedAt", match.getStartedAt() != null ? match.getStartedAt().format(fmt) : "");
+            item.put("endedAt", match.getEndedAt() != null ? match.getEndedAt().format(fmt) : "");
+            item.put("startedAtEpoch", match.getStartedAt() == null ? 0L
+                    : match.getStartedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+            List<com.nhom8.server.model.MatchResult> allResults = matchResultRepository.findByMatch_MatchId(match.getMatchId());
+            allResults.sort((a, b) -> Integer.compare(b.getTotalPoints(), a.getTotalPoints()));
+            int rank = 1;
+            for (int i = 0; i < allResults.size(); i++) {
+                if (allResults.get(i).getResultId().equals(mr.getResultId())) { rank = i + 1; break; }
             }
+            item.put("rank", rank);
+            item.put("totalPlayers", allResults.size());
+            item.put("hasResult", true);
             item.put("pointsDrawn", mr.getPointsDrawn() != null ? mr.getPointsDrawn() : 0);
             item.put("pointsGuess", mr.getPointsGuess() != null ? mr.getPointsGuess() : 0);
             item.put("pointsAdjustment", mr.getPointsAdjustment());
-            item.put("scoringVersion", mr.getMatch() == null ? 1 : mr.getMatch().getScoringVersion());
+            item.put("scoringVersion", match.getScoringVersion());
             item.put("totalPoints", mr.getTotalPoints());
             historyList.add(item);
         }
+
+        // Older/incomplete matches may have saved drawings but no final MatchResult rows.
+        for (com.nhom8.server.model.Painting painting : paintingRepository.findByPainterUsernameWithMatch(user.getUsername())) {
+            com.nhom8.server.model.Match match = painting.getMatch();
+            if (match == null || !includedMatchIds.add(match.getMatchId())) continue;
+            Map<String, Object> item = new HashMap<>();
+            item.put("matchId", match.getMatchId());
+            item.put("roomId", match.getRoomId());
+            item.put("startedAt", match.getStartedAt() != null ? match.getStartedAt().format(fmt) : "");
+            item.put("endedAt", match.getEndedAt() != null ? match.getEndedAt().format(fmt) : "");
+            item.put("startedAtEpoch", match.getStartedAt() == null ? 0L
+                    : match.getStartedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
+            item.put("rank", 0);
+            item.put("totalPlayers", 0);
+            item.put("hasResult", false);
+            item.put("pointsDrawn", 0);
+            item.put("pointsGuess", 0);
+            item.put("pointsAdjustment", 0);
+            item.put("scoringVersion", match.getScoringVersion());
+            item.put("totalPoints", 0);
+            historyList.add(item);
+        }
+        historyList.sort((a, b) -> Long.compare((Long) b.get("startedAtEpoch"), (Long) a.get("startedAtEpoch")));
+        if (historyList.size() > 30) historyList = new ArrayList<>(historyList.subList(0, 30));
 
         Envelope response = Envelope.success(MessageType.MATCH_HISTORY_RESPONSE, "Lịch sử trận đấu.");
         response.put("history", historyList);
         response.put("username", targetUsername);
         handler.sendMessage(response);
+    }
+
+    /** Only a participant may inspect a match or its drawings. */
+    private boolean canReplay(ClientSession handler, int matchId) {
+        if (handler.getUsername() == null) return false;
+        return matchResultRepository.existsByMatch_MatchIdAndUser_Username(matchId, handler.getUsername())
+                || paintingRepository.existsByMatch_MatchIdAndPainter_Username(matchId, handler.getUsername());
+    }
+
+    public void handleMatchDetail(ClientSession handler, Envelope request) {
+        int matchId = request.getInt("matchId", 0);
+        if (matchId <= 0 || !canReplay(handler, matchId)) {
+            handler.sendMessage(Envelope.error(MessageType.MATCH_DETAIL_RESPONSE, "Không có quyền xem trận này."));
+            return;
+        }
+        List<Map<String, Object>> drawings = new ArrayList<>();
+        for (com.nhom8.server.model.Painting painting :
+                paintingRepository.findForMatch(matchId)) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("paintingId", painting.getPaintingId());
+            item.put("roundNumber", painting.getRoundNumber());
+            item.put("turnNumber", painting.getTurnNumber());
+            item.put("painter", painting.getPainter().getUsername());
+            item.put("topic", painting.getTopic());
+            drawings.add(item);
+        }
+        handler.sendMessage(Envelope.success(MessageType.MATCH_DETAIL_RESPONSE, "Chi tiết trận đấu")
+                .put("matchId", matchId).put("drawings", drawings));
+    }
+
+    public void handlePaintingReplay(ClientSession handler, Envelope request) {
+        int paintingId = request.getInt("paintingId", 0);
+        com.nhom8.server.model.Painting painting = paintingRepository.findForReplay(paintingId).orElse(null);
+        if (painting == null || painting.getMatch() == null
+                || !canReplay(handler, painting.getMatch().getMatchId())) {
+            handler.sendMessage(Envelope.error(MessageType.PAINTING_REPLAY_RESPONSE, "Không có quyền xem tranh này."));
+            return;
+        }
+        handler.sendMessage(Envelope.success(MessageType.PAINTING_REPLAY_RESPONSE, "Xem lại tranh")
+                .put("paintingId", paintingId)
+                .put("strokeData", painting.getStrokeData() == null ? "[]" : painting.getStrokeData())
+                .put("resultData", painting.getResultData()));
     }
 
     // === Getters ===
@@ -1683,5 +1669,6 @@ public class GameService {
     public MatchRepository getMatchRepository() { return matchRepository; }
     public MatchResultRepository getMatchResultRepository() { return matchResultRepository; }
     public PaintingRepository getPaintingRepository() { return paintingRepository; }
+    public TopicCatalog getTopicCatalog() { return topicCatalog; }
     public FriendshipRepository getFriendshipRepository() { return friendshipRepository; }
 }

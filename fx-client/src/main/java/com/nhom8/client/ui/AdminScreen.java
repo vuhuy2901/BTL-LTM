@@ -19,7 +19,6 @@ public class AdminScreen {
     private final ListView<String> users = new ListView<>();
     private final ListView<String> rooms = new ListView<>();
     private final ListView<String> topics = new ListView<>();
-    private final Set<String> builtInTopicWords = new HashSet<>();
     private final Label stats = new Label("Đang tải thống kê...");
     private final Label status = new Label("");
 
@@ -89,7 +88,7 @@ public class AdminScreen {
         delete.setOnAction(e -> {
             String selected = topics.getSelectionModel().getSelectedItem();
             if (selected != null) app.getWsClient().send(new Envelope(MessageType.ADMIN_TOPIC_DELETE)
-                    .put("word", selected).put("builtIn", containsIgnoreCase(builtInTopicWords, selected)));
+                    .put("word", selected));
         });
         Button edit = new Button("Sửa từ được chọn");
         edit.setOnAction(e -> {
@@ -102,14 +101,14 @@ public class AdminScreen {
             dialog.setContentText("Từ khóa:");
             dialog.showAndWait().ifPresent(replacement -> app.getWsClient().send(
                     new Envelope(MessageType.ADMIN_TOPIC_UPDATE)
-                            .put("word", selected).put("replacement", replacement)));
+                             .put("word", selected).put("replacement", replacement)));
         });
         topics.setPlaceholder(new Label("Chưa có từ khóa."));
         VBox customPane = new VBox(8, new Label("Tất cả từ khóa dùng trong trận"), topics,
                 new HBox(8, word, add, edit, delete));
         HBox.setHgrow(word, Priority.ALWAYS);
         VBox.setVgrow(topics, Priority.ALWAYS);
-        VBox topicPane = new VBox(10, new Label("Từ khóa mặc định và từ khóa tự thêm được trộn chung."), customPane);
+        VBox topicPane = new VBox(10, new Label("Toàn bộ từ khóa trong database do admin quản lý."), customPane);
         topicPane.setPadding(new Insets(16));
         VBox.setVgrow(customPane, Priority.ALWAYS);
         tabs.getTabs().add(new Tab("Từ khóa", topicPane));
@@ -130,7 +129,7 @@ public class AdminScreen {
         }
         switch (env.getType()) {
             case ADMIN_STATS -> stats.setText(String.format(
-                    "Tài khoản: %d    Online: %d    Phòng đang mở: %d\nTrận đã tạo: %d    Tranh đã lưu: %d    Từ khóa tự thêm: %d",
+                    "Tài khoản: %d    Online: %d    Phòng đang mở: %d\nTrận đã tạo: %d    Tranh đã lưu: %d    Từ khóa: %d",
                     data.path("totalUsers").asLong(), data.path("onlineUsers").asLong(),
                     data.path("activeRooms").asLong(), data.path("totalMatches").asLong(),
                     data.path("totalPaintings").asLong(), data.path("customTopics").asLong()));
@@ -147,13 +146,8 @@ public class AdminScreen {
                         + "  |  " + r.path("status").asText()));
             }
             case ADMIN_TOPICS -> {
-                builtInTopicWords.clear();
-                data.path("builtInTopics").forEach(t -> builtInTopicWords.add(t.asText()));
                 topics.getItems().clear();
                 Set<String> seen = new HashSet<>();
-                builtInTopicWords.stream().sorted(String.CASE_INSENSITIVE_ORDER)
-                        .filter(topic -> seen.add(topic.toLowerCase(java.util.Locale.ROOT)))
-                        .forEach(topics.getItems()::add);
                 data.path("topics").forEach(t -> {
                     String topic = t.asText();
                     if (seen.add(topic.toLowerCase(java.util.Locale.ROOT))) topics.getItems().add(topic);
@@ -166,7 +160,4 @@ public class AdminScreen {
         }
     }
 
-    private boolean containsIgnoreCase(Set<String> values, String target) {
-        return values.stream().anyMatch(value -> value.equalsIgnoreCase(target));
-    }
 }

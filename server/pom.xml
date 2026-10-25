@@ -69,10 +69,11 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- H2 Database for Testing & Standalone Mode -->
+        <!-- H2 chỉ dùng cho test in-memory; runtime/local dùng MySQL -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

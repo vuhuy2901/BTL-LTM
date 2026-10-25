@@ -20,6 +20,7 @@ public interface MatchResultRepository extends JpaRepository<MatchResult, Intege
     List<MatchResult> findByUserWithMatchOrderByStartedAtDesc(@Param("user") User user);
 
     List<MatchResult> findByMatch_MatchId(Integer matchId);
+    boolean existsByMatch_MatchIdAndUser_Username(Integer matchId, String username);
 
     @Query("SELECT mr.user.userId, SUM(mr.pointsDrawn), SUM(mr.pointsGuess) " +
             "FROM MatchResult mr WHERE mr.user.userId IN :userIds GROUP BY mr.user.userId")

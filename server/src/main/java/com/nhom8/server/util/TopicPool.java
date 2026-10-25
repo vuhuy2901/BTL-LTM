@@ -59,6 +59,10 @@ public class TopicPool {
         return builtInTopics;
     }
 
+    public static List<String> getCustomTopics() {
+        return customTopics;
+    }
+
     public static List<String> getSourceBuiltInTopics() {
         return List.copyOf(ALL_TOPICS);
     }

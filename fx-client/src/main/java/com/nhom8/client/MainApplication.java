@@ -637,6 +637,14 @@ public class MainApplication extends Application {
             }
             return;
         }
+        if (envelope.getType() == MessageType.MATCH_DETAIL_RESPONSE) {
+            if (profileDialog != null) profileDialog.handleMatchDetailResponse(envelope);
+            return;
+        }
+        if (envelope.getType() == MessageType.PAINTING_REPLAY_RESPONSE) {
+            if (profileDialog != null) profileDialog.handlePaintingReplayResponse(envelope);
+            return;
+        }
 
         // Xử lý tin nhắn riêng 1-1 (Private Chat với bạn bè)
         if (envelope.getType() == MessageType.CHAT_INBOX_RESPONSE) {

@@ -47,17 +47,17 @@ class TimeScoringGameTest {
     MatchResult result(String username) { return ((Map<String,MatchResult>) ReflectionTestUtils.getField(game,"matchResults")).get(username); }
     Envelope finish() { ReflectionTestUtils.invokeMethod(game, "finishCurrentRound"); return artist.last(MessageType.ROUND_RESULT); }
 
-    @Test void firstCorrectAtTwentySecondsGets47AndRankDoesNotAffectScores() {
-        at(20000); guess(a, answer); assertEquals(47, a.last(MessageType.GUESS_RESULT).getInt("points",0));
-        at(21000); guess(b, answer); assertEquals(44, b.last(MessageType.GUESS_RESULT).getInt("points",0));
-        assertEquals(84, artist.last(MessageType.ROUND_RESULT).getInt("painterPoints",0));
+    @Test void guessPointsFollowOrderEvenWhenFirstCorrectIsLate() {
+        at(20000); guess(a, answer); assertEquals(100, a.last(MessageType.GUESS_RESULT).getInt("points",0));
+        at(21000); guess(b, answer); assertEquals(50, b.last(MessageType.GUESS_RESULT).getInt("points",0));
+        assertEquals(100, artist.last(MessageType.ROUND_RESULT).getInt("painterPoints",0));
     }
     @Test void wrongThenCorrectAndDuplicateMessagesAwardOnlyOnce() {
         at(5000); guess(a,"wrong_answer_9283"); assertEquals(0,a.last(MessageType.GUESS_RESULT).getInt("points",-1));
         at(15000); guess(a,answer); guess(a,answer);
-        assertEquals(60,result(a.getUsername()).getPointsGuess());
-        guess(b,answer); assertEquals(60,result(b.getUsername()).getPointsGuess());
-        assertEquals(88,artist.last(MessageType.ROUND_RESULT).getInt("painterPoints",0));
+        assertEquals(100,result(a.getUsername()).getPointsGuess());
+        guess(b,answer); assertEquals(50,result(b.getUsername()).getPointsGuess());
+        assertEquals(100,artist.last(MessageType.ROUND_RESULT).getInt("painterPoints",0));
     }
     @Test void rejectsDeadlineAuthorWrongDrawingAndOfflineAnswers() {
         guess(artist,answer); assertEquals(0,result(artist.getUsername()).getPointsGuess());
@@ -68,7 +68,7 @@ class TimeScoringGameTest {
     }
     @Test void shortDisconnectedExposureDoesNotLowerDrawingScore() {
         at(9000); fixture.lose(a); at(15000); guess(b,answer); at(30000);
-        Envelope round = finish(); assertEquals(1,round.getInt("totalGuessers",0)); assertEquals(88,round.getInt("painterPoints",0));
+        Envelope round = finish(); assertEquals(1,round.getInt("totalGuessers",0)); assertEquals(100,round.getInt("painterPoints",0));
     }
     @Test void zeroExposureMeansNoArtistPenalty() {
         fixture.lose(a); fixture.lose(b); at(30000); Envelope round = finish();
@@ -87,41 +87,41 @@ class TimeScoringGameTest {
         var recovered = fixture.login(a.getUsername(),a.token(),fixture.room.getRoomId());
         assertEquals(deadline,recovered.last(MessageType.GAME_STATE_SNAPSHOT).getData().path("phaseDeadline").asLong());
         at(25000); guess(b,answer); at(30000);
-        Envelope round = finish(); assertEquals(2,round.getInt("totalGuessers",0)); assertEquals(40,round.getInt("painterPoints",0));
+        Envelope round = finish(); assertEquals(2,round.getInt("totalGuessers",0)); assertEquals(50,round.getInt("painterPoints",0));
     }
     @Test void correctLeaverRemainsSuccessfulAndRewardsAreNotCountedTwice() {
         at(5000); guess(a,answer); fixture.service.handleLeaveRoom(a,new Envelope(MessageType.ROOM_LEAVE));
         at(15000); guess(b,answer);
         Envelope round = artist.last(MessageType.ROUND_RESULT);
-        assertEquals(2,round.getInt("totalGuessers",0)); assertEquals(2,round.getInt("correctCount",0)); assertEquals(92,round.getInt("painterPoints",0));
-        assertEquals(112,result(artist.getUsername()).getTotalPoints());
-        assertEquals(80,result(b.getUsername()).getTotalPoints());
+        assertEquals(2,round.getInt("totalGuessers",0)); assertEquals(2,round.getInt("correctCount",0)); assertEquals(100,round.getInt("painterPoints",0));
+        assertEquals(120,result(artist.getUsername()).getTotalPoints());
+        assertEquals(70,result(b.getUsername()).getTotalPoints());
         game.endGame();
-        verify(fixture.users,times(1)).addRankingScore(fixture.records.get(artist.getUsername()).getUserId(),92);
-        verify(fixture.users,times(1)).addRankingScore(fixture.records.get(b.getUsername()).getUserId(),60);
-        assertEquals(2,artist.last(MessageType.GAME_RESULT).getInt("scoringVersion",0));
+        verify(fixture.users,times(1)).addRankingScore(fixture.records.get(artist.getUsername()).getUserId(),100);
+        verify(fixture.users,times(1)).addRankingScore(fixture.records.get(b.getUsername()).getUserId(),50);
+        assertEquals(4,artist.last(MessageType.GAME_RESULT).getInt("scoringVersion",0));
     }
-    @Test void simultaneousCorrectAnswersReceiveEqualTimeScores() throws Exception {
+    @Test void simultaneousCorrectAnswersReceiveDifferentOrderScores() throws Exception {
         at(15000); ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<?> first = executor.submit(() -> guess(a,answer)); Future<?> second = executor.submit(() -> guess(b,answer));
             first.get(5,TimeUnit.SECONDS); second.get(5,TimeUnit.SECONDS);
-            assertEquals(60,result(a.getUsername()).getPointsGuess()); assertEquals(60,result(b.getUsername()).getPointsGuess());
+            assertEquals(Set.of(100, 50), Set.of(result(a.getUsername()).getPointsGuess(), result(b.getUsername()).getPointsGuess()));
         } finally { executor.shutdownNow(); }
     }
 
-    @Test void threeOfFourCorrectProduces66PointsAndArtistIsExcluded() {
+    @Test void threeOfFourCorrectGivesArtistSeventyFivePoints() {
         fixture.cleanup(); setupGame(5);
         var third = fixture.clients.stream().filter(c -> c != artist && c != a && c != b).findFirst().orElseThrow();
         at(0); guess(a,answer); at(15000); guess(b,answer); at(29999); guess(third,answer); at(30000);
         Envelope round = finish(); assertEquals(4,round.getInt("totalGuessers",0));
-        assertEquals(3,round.getInt("correctCount",0)); assertEquals(66,round.getInt("painterPoints",0));
-        assertEquals(180,round.getInt("sumOfCorrectGuessScores",0));
+        assertEquals(3,round.getInt("correctCount",0)); assertEquals(75,round.getInt("painterPoints",0));
+        assertEquals(225,round.getInt("sumOfCorrectGuessScores",0));
     }
 
     @Test void alreadySubmittedDrawingRetainsScoringAfterArtistDisconnect() {
         fixture.lose(artist); at(15000); guess(a,answer); guess(b,answer);
-        assertEquals(88,result(artist.getUsername()).getPointsDrawn());
-        assertEquals(60,result(a.getUsername()).getPointsGuess());
+        assertEquals(100,result(artist.getUsername()).getPointsDrawn());
+        assertEquals(100,result(a.getUsername()).getPointsGuess());
     }
 }

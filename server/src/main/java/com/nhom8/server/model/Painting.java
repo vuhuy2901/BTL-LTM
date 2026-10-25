@@ -30,9 +30,23 @@ public class Painting implements Serializable {
     @Column(nullable = false, length = 100)
     private String topic;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "topic_entry_id")
+    private TopicEntry topicEntry;
+
+    @Column(name = "round_number")
+    private Integer roundNumber;
+
+    @Column(name = "turn_number")
+    private Integer turnNumber;
+
     @Lob
     @Column(name = "stroke_data", columnDefinition = "LONGTEXT")
     private String strokeData;
+
+    @Lob
+    @Column(name = "result_data", columnDefinition = "LONGTEXT")
+    private String resultData;
 
     public Painting() {}
 
@@ -50,8 +64,16 @@ public class Painting implements Serializable {
     public void setPainter(User painter) { this.painter = painter; }
     public String getTopic() { return topic; }
     public void setTopic(String topic) { this.topic = topic; }
+    public TopicEntry getTopicEntry() { return topicEntry; }
+    public void setTopicEntry(TopicEntry topicEntry) { this.topicEntry = topicEntry; }
+    public Integer getRoundNumber() { return roundNumber; }
+    public void setRoundNumber(Integer roundNumber) { this.roundNumber = roundNumber; }
+    public Integer getTurnNumber() { return turnNumber; }
+    public void setTurnNumber(Integer turnNumber) { this.turnNumber = turnNumber; }
     public String getStrokeData() { return strokeData; }
     public void setStrokeData(String strokeData) { this.strokeData = strokeData; }
+    public String getResultData() { return resultData; }
+    public void setResultData(String resultData) { this.resultData = resultData; }
 
     @Override
     public String toString() {

@@ -1,6 +1,7 @@
 package com.nhom8.client.ui;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nhom8.client.MainApplication;
 import com.nhom8.common.message.Envelope;
 import com.nhom8.common.message.MessageType;
@@ -10,6 +11,12 @@ import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.paint.Color;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.util.Duration;
 import javafx.scene.layout.*;
 
 
@@ -46,10 +53,31 @@ public class ProfileDialog {
         public int totalPoints;
         public int rank;
         public int totalPlayers;
+        public boolean hasResult = true;
     }
 
     private final ObservableList<MatchHistoryEntry> matchHistoryList = FXCollections.observableArrayList();
     private ListView<MatchHistoryEntry> historyListView;
+    private Dialog<Void> replayDialog;
+    private ListView<PaintingHistoryEntry> drawingListView;
+    private Canvas replayCanvas;
+    private TextArea replayResult;
+    private JsonNode replayStrokes;
+    private Timeline replayTimeline;
+    private final ObjectMapper replayMapper = new ObjectMapper();
+
+    private static class PaintingHistoryEntry {
+        int id;
+        Integer round;
+        Integer turn;
+        String painter;
+        String topic;
+        @Override public String toString() {
+            return (round == null ? "Vòng cũ (không rõ số)" : "Vòng " + round)
+                    + (turn == null ? "" : " · Lượt " + turn)
+                    + " · " + painter + " · " + topic;
+        }
+    }
 
     public ProfileDialog(MainApplication app) {
         this.app = app;
@@ -288,7 +316,10 @@ public class ProfileDialog {
 
                     // Huy hiệu thứ hạng
                     Label rankBadge = new Label();
-                    if (item.rank == 1) {
+                    if (!item.hasResult) {
+                        rankBadge.setText("🎨 CÓ TRANH LƯU");
+                        rankBadge.setStyle("-fx-background-color: #DBEAFE; -fx-text-fill: #1D4ED8; -fx-font-weight: bold; -fx-padding: 4 8; -fx-background-radius: 8;");
+                    } else if (item.rank == 1) {
                         rankBadge.setText("🥇 HẠNG 1");
                         rankBadge.setStyle("-fx-background-color: #FEF08A; -fx-text-fill: #854D0E; -fx-font-weight: bold; -fx-padding: 4 8; -fx-background-radius: 8;");
                     } else if (item.rank == 2) {
@@ -315,11 +346,13 @@ public class ProfileDialog {
 
                     VBox scoreBox = new VBox(2);
                     scoreBox.setAlignment(Pos.CENTER_RIGHT);
-                    Label totalScoreLbl = new Label(item.totalPoints + " điểm");
+                    Label totalScoreLbl = new Label(item.hasResult ? item.totalPoints + " điểm" : "Chưa có kết quả");
                     totalScoreLbl.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #059669;");
 
-                    Label breakdownLbl = new Label(String.format("Vẽ: %+d • Đoán: %+d • Thưởng/phạt: %+d • Luật v%d",
-                            item.pointsDrawn, item.pointsGuess, item.pointsAdjustment, item.scoringVersion));
+                    Label breakdownLbl = new Label(item.hasResult
+                            ? String.format("Vẽ: %+d • Đoán: %+d • Thưởng/phạt: %+d • Luật v%d",
+                                    item.pointsDrawn, item.pointsGuess, item.pointsAdjustment, item.scoringVersion)
+                            : "Trận cũ · đã lưu tranh, chưa có kết quả tổng kết");
                     breakdownLbl.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 12px; -fx-text-fill: #64748B;");
                     scoreBox.getChildren().addAll(totalScoreLbl, breakdownLbl);
 
@@ -329,8 +362,18 @@ public class ProfileDialog {
                 }
             }
         });
+        historyListView.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2 && historyListView.getSelectionModel().getSelectedItem() != null)
+                requestMatchDetail(historyListView.getSelectionModel().getSelectedItem().matchId);
+        });
 
-        box.getChildren().addAll(actionBar, historyListView);
+        Button viewDrawings = new Button("Xem các vòng và tranh đã vẽ");
+        viewDrawings.setOnAction(e -> {
+            MatchHistoryEntry selected = historyListView.getSelectionModel().getSelectedItem();
+            if (selected != null) requestMatchDetail(selected.matchId);
+        });
+
+        box.getChildren().addAll(actionBar, historyListView, viewDrawings);
         return box;
     }
 
@@ -366,6 +409,139 @@ public class ProfileDialog {
             env.put("username", app.getCurrentUsername());
             app.getWsClient().send(env);
         }
+    }
+
+    private void requestMatchDetail(int matchId) {
+        if (app.getWsClient() != null && app.getWsClient().isConnected())
+            app.getWsClient().send(new Envelope(MessageType.MATCH_DETAIL_REQUEST).put("matchId", matchId));
+    }
+
+    public void handleMatchDetailResponse(Envelope env) {
+        Platform.runLater(() -> {
+            if (!env.isSuccess()) {
+                DoodleDialog.error(app.getPrimaryStage(), "Không xem được trận", env.getContent());
+                return;
+            }
+            if (replayTimeline != null) replayTimeline.stop();
+            if (replayDialog != null) replayDialog.close();
+            replayDialog = new Dialog<>();
+            replayDialog.setTitle("Lịch sử trận #" + env.getInt("matchId", 0));
+            replayDialog.initOwner(app.getPrimaryStage());
+            replayDialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+            drawingListView = new ListView<>();
+            drawingListView.setPrefHeight(190);
+            JsonNode drawings = env.getData().path("drawings");
+            if (drawings.isArray()) for (JsonNode node : drawings) {
+                PaintingHistoryEntry item = new PaintingHistoryEntry();
+                item.id = node.path("paintingId").asInt();
+                item.round = node.path("roundNumber").isNumber() ? node.path("roundNumber").asInt() : null;
+                item.turn = node.path("turnNumber").isNumber() ? node.path("turnNumber").asInt() : null;
+                item.painter = node.path("painter").asText();
+                item.topic = node.path("topic").asText();
+                drawingListView.getItems().add(item);
+            }
+            drawingListView.setPlaceholder(new Label("Trận này chưa có tranh được lưu."));
+            replayCanvas = new Canvas(480, 345);
+            replayResult = new TextArea();
+            replayResult.setEditable(false);
+            replayResult.setWrapText(true);
+            replayResult.setPrefRowCount(4);
+            clearReplayCanvas();
+            drawingListView.getSelectionModel().selectedItemProperty().addListener((obs, old, item) -> {
+                if (replayTimeline != null) replayTimeline.stop();
+                replayStrokes = null;
+                clearReplayCanvas();
+                replayResult.clear();
+                if (item != null && app.getWsClient() != null)
+                    app.getWsClient().send(new Envelope(MessageType.PAINTING_REPLAY_REQUEST).put("paintingId", item.id));
+            });
+            Button play = new Button("▶ Phát lại nét vẽ");
+            play.setOnAction(e -> playReplay());
+            VBox panel = new VBox(8, new Label("Chọn tranh để xem từ khóa và nét vẽ:"), drawingListView,
+                    replayCanvas, play, replayResult);
+            panel.setPadding(new Insets(12));
+            replayDialog.getDialogPane().setContent(panel);
+            replayDialog.setOnHidden(e -> {
+                if (replayTimeline != null) replayTimeline.stop();
+                replayDialog = null;
+                replayCanvas = null;
+                replayResult = null;
+            });
+            replayDialog.show();
+        });
+    }
+
+    public void handlePaintingReplayResponse(Envelope env) {
+        Platform.runLater(() -> {
+            if (replayDialog == null || drawingListView == null || replayCanvas == null) return;
+            if (!env.isSuccess()) {
+                DoodleDialog.error(app.getPrimaryStage(), "Không xem được tranh", env.getContent());
+                return;
+            }
+            PaintingHistoryEntry selected = drawingListView.getSelectionModel().getSelectedItem();
+            if (selected == null || selected.id != env.getInt("paintingId", 0)) return;
+            try {
+                replayStrokes = replayMapper.readTree(env.getString("strokeData"));
+                clearReplayCanvas();
+                if (replayStrokes.isArray()) replayStrokes.forEach(this::drawReplayStroke);
+                JsonNode result = env.getData().path("resultData");
+                if (result.isTextual() && !result.asText().isBlank()) {
+                    JsonNode data = replayMapper.readTree(result.asText()).path("data");
+                    StringBuilder summary = new StringBuilder("Điểm người vẽ: " + data.path("painterPoints").asInt()
+                            + " · Đoán đúng: " + data.path("correctCount").asInt()
+                            + "/" + data.path("totalGuessers").asInt());
+                    for (JsonNode guess : data.path("guessFullLog")) {
+                        summary.append("\n").append(guess.path("username").asText())
+                                .append(" · ").append(guess.path("timeFormatted").asText())
+                                .append(" · ").append(guess.path("guessContent").asText());
+                    }
+                    replayResult.setText(summary.toString());
+                } else replayResult.setText("Trận cũ chưa lưu chi tiết lượt đoán.");
+            } catch (Exception ex) {
+                replayStrokes = null;
+                DoodleDialog.error(app.getPrimaryStage(), "Dữ liệu tranh lỗi", "Không đọc được nét vẽ đã lưu.");
+            }
+        });
+    }
+
+    private void clearReplayCanvas() {
+        if (replayCanvas == null) return;
+        GraphicsContext gc = replayCanvas.getGraphicsContext2D();
+        gc.setFill(Color.WHITE);
+        gc.fillRect(0, 0, 480, 345);
+    }
+
+    private void drawReplayStroke(JsonNode stroke) {
+        if (replayCanvas == null) return;
+        if (stroke.path("clear").asBoolean() || "CLEAR".equals(stroke.path("tool").asText())) {
+            clearReplayCanvas();
+            return;
+        }
+        if (stroke.path("undo").asBoolean() || "UNDO".equals(stroke.path("tool").asText())) return;
+        JsonNode xs = stroke.path("xPoints"), ys = stroke.path("yPoints");
+        if (!xs.isArray() || !ys.isArray() || xs.isEmpty() || ys.isEmpty()) return;
+        GraphicsContext gc = replayCanvas.getGraphicsContext2D();
+        try {
+            gc.setStroke("ERASER".equals(stroke.path("tool").asText()) ? Color.WHITE
+                    : Color.web(stroke.path("color").asText("#000000")));
+        } catch (IllegalArgumentException ex) { gc.setStroke(Color.BLACK); }
+        gc.setLineWidth(Math.max(1, stroke.path("width").asDouble(3) * .75));
+        gc.beginPath();
+        gc.moveTo(xs.get(0).asDouble() * .75, ys.get(0).asDouble() * .75);
+        for (int i = 1; i < Math.min(xs.size(), ys.size()); i++)
+            gc.lineTo(xs.get(i).asDouble() * .75, ys.get(i).asDouble() * .75);
+        gc.stroke();
+    }
+
+    private void playReplay() {
+        if (replayStrokes == null || !replayStrokes.isArray()) return;
+        if (replayTimeline != null) replayTimeline.stop();
+        clearReplayCanvas();
+        replayTimeline = new Timeline();
+        int index = 0;
+        for (JsonNode stroke : replayStrokes)
+            replayTimeline.getKeyFrames().add(new KeyFrame(Duration.millis(40L * ++index), e -> drawReplayStroke(stroke)));
+        replayTimeline.playFromStart();
     }
 
     private void sendUpdateDisplayName() {
@@ -485,6 +661,7 @@ public class ProfileDialog {
                     entry.totalPoints = h.has("totalPoints") ? h.get("totalPoints").asInt() : 0;
                     entry.rank = h.has("rank") ? h.get("rank").asInt() : 1;
                     entry.totalPlayers = h.has("totalPlayers") ? h.get("totalPlayers").asInt() : 1;
+                    entry.hasResult = h.path("hasResult").asBoolean(true);
                     matchHistoryList.add(entry);
                 });
             }
