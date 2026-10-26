@@ -23,7 +23,7 @@ public class Room {
 
     public static final int MIN_PLAYERS = 3;
     public static final int MAX_PLAYERS = 8;
-    public static final int MIN_ACTIVE_PLAYERS = 2;
+    public static final int MIN_ACTIVE_PLAYERS = MIN_PLAYERS;
 
     private String roomId;
     private String roomName;

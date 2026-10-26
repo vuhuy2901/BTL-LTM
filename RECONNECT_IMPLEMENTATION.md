@@ -13,7 +13,7 @@ Hết hạn: chuyển tư cách thành viên cũ sang LEFT, xóa khỏi phòng/t
 - Nét vẽ có mã tranh và phiên bản tăng dần; truyền các đoạn vector, không truyền ảnh toàn khung liên tục. Bản nháp chỉ trả về đúng tác giả. Client giữ bản cục bộ để bổ sung phần chưa đồng bộ sau reconnect.
 - DRAFT: chưa nộp. SUBMITTED: server xác nhận đã nhận. SKIPPED: chưa nộp và còn mất kết nối khi hết giờ. PUBLISHED: đang/đã được chiếu.
 - Tranh SKIPPED không vào hàng đợi đoán, không hiện tranh trắng và không chịu phạt riêng do không ai đoán đúng. Tranh đã nhận vẫn được chiếu dù tác giả mất kết nối. Nộp trễ hoặc sai mã tranh bị từ chối; gửi trùng bài đã nhận chỉ được xác nhận lại.
-- Phòng tối đa 8 người, tối thiểu 3 người đang kết nối và tất cả sẵn sàng để bắt đầu. Theo yêu cầu reconnect mới, trận đang chơi tiếp tục với ít nhất 2 thành viên hợp lệ; vị trí trong thời hạn reconnect vẫn được giữ.
+- Phòng tối đa 8 người, tối thiểu 3 người đang kết nối và tất cả sẵn sàng để bắt đầu. Trận đang chơi cần ít nhất 3 thành viên hợp lệ; vị trí trong thời hạn reconnect 30 giây vẫn được giữ. Nếu hết hạn mà chỉ còn 2 người, trận dừng và phòng giải tán.
 - Rời trận hoặc hết hạn khi trận còn chạy: -20 cho người rời, +20 cho mỗi thành viên hợp lệ còn lại. Một guard cho mỗi người trong mỗi trận ngăn áp dụng trùng; cập nhật điểm của cả nhóm trong một truy vấn giao dịch nguyên tử.
 - Không phạt mất kết nối tại phòng chờ, reconnect đúng hạn hoặc hết hạn sau khi trận đã kết thúc bình thường. Rời phòng chủ động cần xác nhận và không khởi tạo thời gian giữ chỗ khi server nhận yêu cầu.
 

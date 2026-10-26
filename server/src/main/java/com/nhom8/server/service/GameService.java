@@ -449,7 +449,7 @@ public class GameService {
         room.broadcast(updateSettings);
     }
 
-    public void handleRoomKickPlayer(ClientSession handler, Envelope request) {
+    public synchronized void handleRoomKickPlayer(ClientSession handler, Envelope request) {
         String roomId = handler.getCurrentRoomId();
         if (roomId == null) return;
         Room room = roomManager.getRoom(roomId);
@@ -470,8 +470,14 @@ public class GameService {
             targetSession.sendMessage(kickedMsg);
 
             // Update room
-            broadcastRoomUpdate(room);
-            if (!room.isPlaying() && room.allPlayersReady()) room.getGameSession().beginStartCountdown();
+            if (room.isPlaying() && room.getPlayerCount() < Room.MIN_ACTIVE_PLAYERS) {
+                dissolveRoom(room);
+            } else if (room.getPlayerCount() == 0) {
+                roomManager.removeRoom(roomId);
+            } else {
+                broadcastRoomUpdate(room);
+                if (!room.isPlaying() && room.allPlayersReady()) room.getGameSession().beginStartCountdown();
+            }
             broadcastPlayerList();
             broadcastRoomList();
         }
@@ -1151,8 +1157,9 @@ public class GameService {
                     room.broadcast(disconnectMsg);
                     Envelope notice = new Envelope(MessageType.ROOM_CHAT);
                     notice.put("senderDisplayName", "Hệ thống");
-                    notice.put("content", username + " mất kết nối. Trận vẫn tiếp tục; người chơi có "
-                            + reconnectGraceMillis / 1000 + " giây để vào lại.");
+                    notice.put("content", username + " mất kết nối. Giữ chỗ "
+                            + reconnectGraceMillis / 1000 + " giây để vào lại; nếu hết hạn mà trận còn dưới "
+                            + Room.MIN_ACTIVE_PLAYERS + " người, phòng sẽ giải tán.");
                     room.broadcast(notice);
                     broadcastRoomUpdate(room);
                 }
@@ -1318,6 +1325,12 @@ public class GameService {
         dissolveMsg.setContent(reason);
         room.broadcast(dissolveMsg);
 
+        pendingReconnects.forEach((username, pending) -> {
+            if (room.getRoomId().equals(pending.roomId) && pendingReconnects.remove(username, pending)) {
+                if (pending.expiryTask != null) pending.expiryTask.cancel(false);
+                pending.disconnectedSession.setCurrentRoomId(null);
+            }
+        });
         for (ClientSession handler : room.getPlayers()) {
             handler.setCurrentRoomId(null);
         }

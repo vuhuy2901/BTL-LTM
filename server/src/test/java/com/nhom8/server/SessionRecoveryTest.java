@@ -187,11 +187,17 @@ class SessionRecoveryTest {
         assertTrue(Set.of("SUBMITTED", "PUBLISHED").contains(states().get("p1")));
     }
 
-    @Test void expiredPlayerCannotJoinActiveMatchAndPenaltyIsOnlyAppliedOnce() {
-        drawing(); Client old = clients.get(0); lose(old); now.addAndGet(30000);
+    @Test void expiredPlayerDissolvesThreePlayerMatchAndPenaltyIsOnlyAppliedOnce() {
+        drawing(); Client old = clients.get(0); lose(old);
+        assertTrue(room.isPlaying()); assertEquals(3, room.getPlayerCount());
+        assertTrue(clients.get(1).messages.stream().noneMatch(e -> e.getType() == MessageType.ROOM_DISSOLVED));
+        now.addAndGet(30000);
         service.expireDisconnectedSessions(); service.expireDisconnectedSessions(); room.getGameSession().onPlayerLeft("p1");
         verify(users, times(1)).applyLeaveScores(eq(1), argThat(ids -> ids.containsAll(List.of(2, 3)) && ids.size() == 2), eq(20));
-        assertTrue(room.isPlaying()); assertEquals(2, room.getPlayerCount());
+        assertNull(service.getRoomManager().getRoom(room.getRoomId()));
+        assertNull(clients.get(1).getCurrentRoomId()); assertNull(clients.get(2).getCurrentRoomId());
+        assertEquals(1, clients.get(1).messages.stream().filter(e -> e.getType() == MessageType.ROOM_DISSOLVED).count());
+        assertTrue(clients.get(1).last(MessageType.ROOM_DISSOLVED).getContent().contains("tối thiểu 3"));
         Client recovered = login("p1", old.token(), room.getRoomId());
         service.handleJoinRoom(recovered, new Envelope(MessageType.ROOM_JOIN).put("roomId", room.getRoomId()));
         assertFalse(recovered.last(MessageType.ROOM_RESPONSE).isSuccess());
@@ -225,11 +231,22 @@ class SessionRecoveryTest {
         assertEquals(now.get() + 30000, recovered.getReconnectDeadline());
     }
 
-    @Test void simultaneousExpiryDissolvesMatchBelowTwoAndReleasesMembership() {
+    @Test void simultaneousExpiryDissolvesMatchBelowThreeAndReleasesMembership() {
         drawing(); lose(clients.get(0)); lose(clients.get(1)); now.addAndGet(30000);
         service.expireDisconnectedSessions();
         assertNull(service.getRoomManager().getRoom(room.getRoomId()));
         assertNull(clients.get(2).getCurrentRoomId());
+        assertNull(clients.get(0).getCurrentRoomId()); assertNull(clients.get(1).getCurrentRoomId());
+        assertTrue(((Map<?, ?>) ReflectionTestUtils.getField(service, "pendingReconnects")).isEmpty());
+    }
+
+    @Test void kickingOnePlayerFromThreePlayerMatchDissolvesRoom() {
+        drawing();
+        service.handleRoomKickPlayer(clients.get(0), new Envelope(MessageType.ROOM_KICK).put("targetUsername", "p2"));
+        assertNull(service.getRoomManager().getRoom(room.getRoomId()));
+        assertNull(clients.get(0).getCurrentRoomId()); assertNull(clients.get(2).getCurrentRoomId());
+        assertEquals(1, clients.get(2).messages.stream().filter(e -> e.getType() == MessageType.ROOM_DISSOLVED).count());
+        verify(users, times(1)).applyLeaveScores(eq(2), argThat(ids -> ids.containsAll(List.of(1, 3)) && ids.size() == 2), eq(20));
     }
 
     @Test void normalResultsDuringGraceAreRecoveredWithoutRetroactivePenalty() {
@@ -243,6 +260,8 @@ class SessionRecoveryTest {
         drawing(); Client old = clients.get(0);
         service.handleLeaveRoom(old, new Envelope(MessageType.ROOM_LEAVE));
         assertNull(room.getPlayer("p1")); lose(old); now.addAndGet(40000); service.expireDisconnectedSessions();
+        assertNull(service.getRoomManager().getRoom(room.getRoomId()));
+        assertNull(clients.get(1).getCurrentRoomId());
         verify(users, times(1)).applyLeaveScores(eq(1), anyList(), eq(20));
     }
 

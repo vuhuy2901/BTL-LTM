@@ -1101,7 +1101,7 @@ public class GameSession {
             playerOrder.remove(username);
         }
 
-        // Phiên đang chơi được tiếp tục khi còn ít nhất hai người.
+        // Phiên đang chơi cần đủ số người tối thiểu; GameService sẽ giải tán phòng nếu thiếu.
         if (room.getPlayerCount() < Room.MIN_ACTIVE_PLAYERS) {
             return;
         }

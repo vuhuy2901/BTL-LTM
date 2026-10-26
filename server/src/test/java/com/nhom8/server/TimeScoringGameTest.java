@@ -90,15 +90,17 @@ class TimeScoringGameTest {
         Envelope round = finish(); assertEquals(2,round.getInt("totalGuessers",0)); assertEquals(50,round.getInt("painterPoints",0));
     }
     @Test void correctLeaverRemainsSuccessfulAndRewardsAreNotCountedTwice() {
+        fixture.cleanup(); setupGame(4);
         at(5000); guess(a,answer); fixture.service.handleLeaveRoom(a,new Envelope(MessageType.ROOM_LEAVE));
         at(15000); guess(b,answer);
-        Envelope round = artist.last(MessageType.ROUND_RESULT);
-        assertEquals(2,round.getInt("totalGuessers",0)); assertEquals(2,round.getInt("correctCount",0)); assertEquals(100,round.getInt("painterPoints",0));
-        assertEquals(120,result(artist.getUsername()).getTotalPoints());
-        assertEquals(70,result(b.getUsername()).getTotalPoints());
+        at(30000); Envelope round = finish();
+        assertTrue(fixture.room.isPlaying()); assertEquals(3, fixture.room.getPlayerCount());
+        assertEquals(3,round.getInt("totalGuessers",0)); assertEquals(2,round.getInt("correctCount",0)); assertEquals(67,round.getInt("painterPoints",0));
+        assertEquals(87,result(artist.getUsername()).getTotalPoints());
+        assertEquals(87,result(b.getUsername()).getTotalPoints());
         game.endGame();
-        verify(fixture.users,times(1)).addRankingScore(fixture.records.get(artist.getUsername()).getUserId(),100);
-        verify(fixture.users,times(1)).addRankingScore(fixture.records.get(b.getUsername()).getUserId(),50);
+        verify(fixture.users,times(1)).addRankingScore(fixture.records.get(artist.getUsername()).getUserId(),67);
+        verify(fixture.users,times(1)).addRankingScore(fixture.records.get(b.getUsername()).getUserId(),67);
         assertEquals(4,artist.last(MessageType.GAME_RESULT).getInt("scoringVersion",0));
     }
     @Test void simultaneousCorrectAnswersReceiveDifferentOrderScores() throws Exception {
