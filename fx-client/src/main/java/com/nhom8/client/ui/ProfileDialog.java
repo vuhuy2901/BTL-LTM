@@ -58,7 +58,7 @@ public class ProfileDialog {
 
     private final ObservableList<MatchHistoryEntry> matchHistoryList = FXCollections.observableArrayList();
     private ListView<MatchHistoryEntry> historyListView;
-    private Dialog<Void> replayDialog;
+    private ModalOverlay replayOverlay;
     private ListView<PaintingHistoryEntry> drawingListView;
     private Canvas replayCanvas;
     private TextArea replayResult;
@@ -422,12 +422,8 @@ public class ProfileDialog {
                 DoodleDialog.error(app.getPrimaryStage(), "Không xem được trận", env.getContent());
                 return;
             }
+            if (replayOverlay != null) return;
             if (replayTimeline != null) replayTimeline.stop();
-            if (replayDialog != null) replayDialog.close();
-            replayDialog = new Dialog<>();
-            replayDialog.setTitle("Lịch sử trận #" + env.getInt("matchId", 0));
-            replayDialog.initOwner(app.getPrimaryStage());
-            replayDialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
             drawingListView = new ListView<>();
             drawingListView.setPrefHeight(190);
             JsonNode drawings = env.getData().path("drawings");
@@ -460,20 +456,39 @@ public class ProfileDialog {
             VBox panel = new VBox(8, new Label("Chọn tranh để xem từ khóa và nét vẽ:"), drawingListView,
                     replayCanvas, play, replayResult);
             panel.setPadding(new Insets(12));
-            replayDialog.getDialogPane().setContent(panel);
-            replayDialog.setOnHidden(e -> {
+
+            Label replayTitle = new Label("Lịch sử trận #" + env.getInt("matchId", 0));
+            replayTitle.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 22px; -fx-font-weight: bold;");
+            Region headerSpacer = new Region();
+            HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+            Button closeReplay = new Button("✖ Đóng");
+            closeReplay.getStyleClass().add("pencil-button-sm");
+            closeReplay.setOnAction(e -> replayOverlay.close());
+            HBox header = new HBox(12, replayTitle, headerSpacer, closeReplay);
+            header.setAlignment(Pos.CENTER_LEFT);
+            header.setPadding(new Insets(12));
+
+            ScrollPane scroll = new ScrollPane(panel);
+            scroll.setFitToWidth(true);
+            BorderPane replayRoot = new BorderPane();
+            replayRoot.setStyle("-fx-background-color: #FDFBF7;");
+            replayRoot.setTop(header);
+            replayRoot.setCenter(scroll);
+            replayOverlay = ModalOverlay.show(app.getPrimaryStage(), replayRoot, 620, 680, () -> {
                 if (replayTimeline != null) replayTimeline.stop();
-                replayDialog = null;
+                replayOverlay = null;
+                drawingListView = null;
                 replayCanvas = null;
                 replayResult = null;
-            });
-            replayDialog.show();
+                replayStrokes = null;
+            }, true);
         });
     }
 
     public void handlePaintingReplayResponse(Envelope env) {
         Platform.runLater(() -> {
-            if (replayDialog == null || drawingListView == null || replayCanvas == null) return;
+            if (replayOverlay == null || !replayOverlay.isShowing()
+                    || drawingListView == null || replayCanvas == null) return;
             if (!env.isSuccess()) {
                 DoodleDialog.error(app.getPrimaryStage(), "Không xem được tranh", env.getContent());
                 return;

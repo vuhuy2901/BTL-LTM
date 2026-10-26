@@ -24,7 +24,8 @@ public final class ModalOverlay {
     private boolean showing;
     private boolean waiting;
 
-    private ModalOverlay(Scene scene, Node content, double width, double height, Runnable onClose) {
+    private ModalOverlay(Scene scene, Node content, double width, double height, Runnable onClose,
+                         boolean closeOnOutsideClick) {
         this.scene = scene;
         this.originalRoot = scene.getRoot();
         this.layer = new StackPane();
@@ -36,7 +37,10 @@ public final class ModalOverlay {
 
         StackPane scrim = new StackPane();
         scrim.getStyleClass().add("modal-scrim");
-        scrim.setOnMouseClicked(e -> e.consume());
+        scrim.setOnMouseClicked(e -> {
+            if (closeOnOutsideClick) close();
+            e.consume();
+        });
 
         if (content instanceof Region region) {
             region.getStyleClass().add("modal-card");
@@ -71,8 +75,13 @@ public final class ModalOverlay {
     }
 
     public static ModalOverlay show(Stage owner, Node content, double width, double height, Runnable onClose) {
+        return show(owner, content, width, height, onClose, false);
+    }
+
+    public static ModalOverlay show(Stage owner, Node content, double width, double height, Runnable onClose,
+                                    boolean closeOnOutsideClick) {
         if (owner == null || owner.getScene() == null) throw new IllegalStateException("Modal requires an active owner scene");
-        return new ModalOverlay(owner.getScene(), content, width, height, onClose);
+        return new ModalOverlay(owner.getScene(), content, width, height, onClose, closeOnOutsideClick);
     }
 
     public void close() {
