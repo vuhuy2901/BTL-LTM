@@ -116,7 +116,18 @@ public class RoomScreen {
         playerCountLabel = new Label("1/8 Người chơi");
         playerCountLabel.setStyle("-fx-font-family: 'Patrick Hand'; -fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: -fx-ink;");
 
-        topBar.getChildren().addAll(leaveBtn, titleLabel, copyBox, spacer, playerCountLabel);
+        Button soundBtn = new Button(BackgroundMusic.isMuted() ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật");
+        soundBtn.getStyleClass().add("pencil-button-sm");
+        soundBtn.setTooltip(new Tooltip("Bật / Tắt âm thanh nền"));
+        soundBtn.setOnAction(e -> {
+            boolean isMuted = BackgroundMusic.toggleMute();
+            soundBtn.setText(isMuted ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật");
+        });
+        BackgroundMusic.addMuteListener(muted -> Platform.runLater(() ->
+                soundBtn.setText(muted ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật")
+        ));
+
+        topBar.getChildren().addAll(leaveBtn, titleLabel, copyBox, spacer, playerCountLabel, soundBtn);
         root.setTop(topBar);
 
         // Room controls on the left, three social tabs on the right.

@@ -13,5 +13,6 @@ The following files were converted from the original OGG files to 22,050 Hz mono
 - bong_001.wav — countdown completion
 - pencil_draw.wav — continuous pencil sketching on paper (derived from Pencil #1 by Joseph SARDIN, BigSoundBank.com, CC0 1.0)
 - eraser_draw.wav — eraser rubbing on paper (CC0 1.0)
+- bgm_lobby.wav — cheerful acoustic background music loop for lobby and waiting room (procedural harmonic synthesis, CC0 1.0)
 
 Kenney and BigSoundBank permit use in personal, educational, and commercial projects without required attribution.

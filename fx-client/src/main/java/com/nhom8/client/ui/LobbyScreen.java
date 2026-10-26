@@ -177,11 +177,22 @@ public class LobbyScreen {
         profileBtn.setTooltip(new Tooltip("Xem & Chỉnh sửa hồ sơ cá nhân / Lịch sử đấu"));
         profileBtn.setOnAction(e -> app.openProfileDialog());
 
+        Button soundBtn = new Button(BackgroundMusic.isMuted() ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật");
+        soundBtn.getStyleClass().add("pencil-button-sm");
+        soundBtn.setTooltip(new Tooltip("Bật / Tắt âm thanh nền"));
+        soundBtn.setOnAction(e -> {
+            boolean isMuted = BackgroundMusic.toggleMute();
+            soundBtn.setText(isMuted ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật");
+        });
+        BackgroundMusic.addMuteListener(muted -> Platform.runLater(() ->
+                soundBtn.setText(muted ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật")
+        ));
+
         Button logoutBtn = new Button("Đăng xuất");
         logoutBtn.getStyleClass().add("pencil-button-sm");
         logoutBtn.setOnAction(e -> app.returnToLogin(null));
 
-        topBar.getChildren().addAll(brandLabel, spacer, welcomeLabel, profileBtn);
+        topBar.getChildren().addAll(brandLabel, spacer, welcomeLabel, profileBtn, soundBtn);
         if (app.isAdmin()) {
             Button adminBtn = new Button("Quản trị");
             adminBtn.getStyleClass().add("pencil-button-sm");

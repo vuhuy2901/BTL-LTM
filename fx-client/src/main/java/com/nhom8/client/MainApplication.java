@@ -325,8 +325,23 @@ public class MainApplication extends Application {
             connectAndRegister(user, pass, disp.isEmpty() ? user : disp);
         });
 
+        Button soundBtn = new Button(com.nhom8.client.ui.BackgroundMusic.isMuted() ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật");
+        soundBtn.getStyleClass().add("pencil-button-sm");
+        soundBtn.setTooltip(new Tooltip("Bật / Tắt âm thanh nền"));
+        soundBtn.setOnAction(e -> {
+            boolean isMuted = com.nhom8.client.ui.BackgroundMusic.toggleMute();
+            soundBtn.setText(isMuted ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật");
+        });
+        com.nhom8.client.ui.BackgroundMusic.addMuteListener(muted -> Platform.runLater(() ->
+                soundBtn.setText(muted ? "🔇 Nhạc: Tắt" : "🔊 Nhạc: Bật")
+        ));
+
+        HBox topCorner = new HBox(soundBtn);
+        topCorner.setAlignment(Pos.CENTER_RIGHT);
+        topCorner.setMaxWidth(400);
+
         card.getChildren().addAll(serverSettings, tabBox, formContainer, statusLabel);
-        root.getChildren().addAll(titleLabel, subtitleLabel, card);
+        root.getChildren().addAll(topCorner, titleLabel, subtitleLabel, card);
 
         Scene scene = new Scene(root, 800, 600);
         applyTheme(scene);
@@ -754,6 +769,7 @@ public class MainApplication extends Application {
         Scene scene = lobbyScreen.createScene();
         applyTheme(scene);
         primaryStage.setScene(scene);
+        com.nhom8.client.ui.BackgroundMusic.play();
 
         // Yêu cầu máy chủ gửi lại dữ liệu phòng và bạn bè mới nhất
         if (webSocketClient != null && webSocketClient.isConnected()) {
@@ -767,6 +783,7 @@ public class MainApplication extends Application {
     /** Clears the local authenticated state and returns the user to the login form. */
     public void returnToLogin(String message) {
         stopReconnectAttempts();
+        com.nhom8.client.ui.BackgroundMusic.stop();
         if (webSocketClient != null) {
             webSocketClient.close();
         }
@@ -802,6 +819,7 @@ public class MainApplication extends Application {
         Scene scene = roomScreen.createScene();
         applyTheme(scene);
         primaryStage.setScene(scene);
+        com.nhom8.client.ui.BackgroundMusic.play();
         if (lastRoomUpdate != null && roomId.equals(lastRoomUpdate.getString("roomId"))) {
             roomScreen.handleMessage(lastRoomUpdate);
         }
@@ -812,6 +830,7 @@ public class MainApplication extends Application {
     }
 
     public void showGameScreen(String roomId) {
+        com.nhom8.client.ui.BackgroundMusic.stop();
         if (roomScreen != null) roomScreen.stopStartCountdown();
         gameScreen = new GameScreen(this, roomId);
         Scene scene = gameScreen.createScene();
@@ -840,6 +859,7 @@ public class MainApplication extends Application {
 
     @Override
     public void stop() {
+        com.nhom8.client.ui.BackgroundMusic.stop();
         if (webSocketClient != null) {
             webSocketClient.close();
         }
